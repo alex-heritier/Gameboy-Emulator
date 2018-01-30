@@ -60,6 +60,7 @@ class CPU {
   // Run instruction at mmu[PC]
   public void tick() {
     short instruction = mmu.get(IH.PC());
+    Util.log(Util.hex(IH.PC()) + "\t" + Util.hex(instruction));
 
     decode(instruction);
     IH.incPC();
@@ -86,19 +87,55 @@ class CPU {
 
   /*
    * Instruction helpers
-   */
+   *///FE 34 20 F3 11 D8 00 06 08 1A 13 22 23 05 20 F9
   private void decode(short instruction) {
     switch ((int) instruction) {  // cast to remove lossy conversion errors
+      case 0x00:  // NOP
+        break;
+      case 0x01:  // LD BC,d16
+        IH.ld16(Register.B, Register.C);
+        break;
+      case 0x04:  // INC B
+        IH.inc(Register.B);
+        break;
+      case 0x05:  // DEC B
+        IH.dec(Register.B);
+        break;
+      case 0x06:  // LD B,d8
+        IH.ld8(Register.B);
+        break;
+      case 0x08:  // LD (a16),SP
+        IH.ld16_push(Register.SP_0, Register.SP_1);
+        break;
+      case 0x0C:  // INC C
+        IH.inc(Register.C);
+        break;
       case 0x0E:  // LD C,d8
         IH.ld8(Register.C);
         break;
+      case 0x10:  // STOP 0
+        stop();
+        break;
+      case 0x11:  // LD DE,d16
+        IH.ld16(Register.D, Register.E);
+        break;
+      case 0x13:  // INC DE
+        IH.inc(Register.D, Register.E);
+        break;
+      case 0x1A:  // LD A,(DE)
+        IH.ld8_pop(Register.A, Register.D, Register.E);
+        break;
       case 0x20:  // JR NZ,r8
-        //dump();
         IH.jrn(Flag.Z);
-        //dump();
         break;
       case 0x21:  // LD HL,d16
         IH.ld16(Register.H, Register.L);
+        break;
+      case 0x22:  // LD (HL+),A
+        IH.ld16_hli(Register.H, Register.L, Register.A);
+        break;
+      case 0x23:  // INC HL
+        IH.inc(Register.H, Register.L);
         break;
       case 0x26:  // LD H,d8
         IH.ld8(Register.H);
@@ -107,10 +144,34 @@ class CPU {
         IH.ld16(Register.SP_0, Register.SP_1);
         break;
       case 0x32:  // LD (HL-),A
-        IH.ld16_hli(Register.H, Register.L, Register.A);
+        IH.ld16_hld(Register.H, Register.L, Register.A);
+        break;
+      case 0x34:  // INC (HL)
+        IH.inc_mem(Register.H, Register.L);
+        break;
+      case 0x3E:  // LD A,d8
+        IH.ld8(Register.A);
+        break;
+      case 0x47:  // LD B, A
+        IH.ld8(Register.B, Register.A);
+        break;
+      case 0x77:  // LD (HL),A
+        IH.ld16_hl(Register.H, Register.L, Register.A);
+        break;
+      case 0x7B:  // LD A,E
+        IH.ld8(Register.A, Register.E);
         break;
       case 0x7C:  // LD A,H
         IH.ld8(Register.A, Register.H);
+        break;
+      case 0x80:  // ADD A,B
+        IH.add(Register.A, Register.B);
+        break;
+      case 0x95:  // SUB L
+        IH.sub(Register.L);
+        break;
+      case 0x96:  // SUB (HL)
+        IH.sub_pop(Register.H, Register.L);
         break;
       case 0x9F:  // SBC A,A
         IH.sbc(Register.A);
@@ -121,8 +182,29 @@ class CPU {
       case 0xCB:  // PREFIX CB
         IH.CB();
         break;
+      case 0xCD:  // CALL a16
+        IH.call();
+        break;
+      case 0xD8:  // RET C
+        IH.ret(Flag.C);
+        break;
+      case 0xE0:  // LDH (a8),A
+        IH.ldh_push();
+        break;
+      case 0xE2:  // LD (C),A
+        IH.ld8_push(Register.C, Register.A);
+        break;
+      case 0xF3:  // DI
+        IH.DI();
+        break;
+      case 0xF9:  // LD SP,HL
+        IH.ld16(Register.SP_0, Register.SP_1, Register.H, Register.L);
+        break;
       case 0xFB:  // EI
         IH.EI();
+        break;
+      case 0xFC:  // N/A
+        unimplemented(instruction);
         break;
       case 0xFE:  // CP d8
         IH.cp();
@@ -134,6 +216,14 @@ class CPU {
         Util.errn("CPU.decode - defaulted on instruction: " + Util.hex(instruction));
         break;
     }
+  }
+
+  private void stop() {
+    Util.log("STOP");
+  }
+
+  private void unimplemented(short instruction) {
+    Util.errn("Tried to run unimplemented instruction 0x" + instruction);
   }
 
 

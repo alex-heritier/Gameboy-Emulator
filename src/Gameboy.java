@@ -12,8 +12,9 @@ class Gameboy {
 
   public void run() {
     // cpu.dump();
-    for (int i = 0; i < 0xF; i++) {
+    for (int i = 0; i < 0x30; i++) {
       cpu.tick();
     }
+    // cpu.dump();
   }
 }

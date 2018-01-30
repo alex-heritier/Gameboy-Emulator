@@ -19,6 +19,11 @@ class InstructionHelper {
    * Top level CPU instructions
    */
 
+  public void add(CPU.Register reg1, CPU.Register reg2) {
+    short sum = add8(reg1, reg2);
+    setReg(reg1, sum);
+  }
+
   public void cp() {
     incPC();
     short byte1 = mmu.get(PC());
@@ -39,7 +44,14 @@ class InstructionHelper {
     setFlag(CPU.Flag.Z, result == 0);  // should always be set
   }
 
-  // ld R, x
+  // ld X, [XX]
+  public void ld8_pop(CPU.Register reg1, CPU.Register reg2, CPU.Register reg3) {
+    int address = word(reg2, reg3);
+    short value = mmu.get(address);
+
+    ld8(reg1, value);
+  }
+  // ld X, d8
   public void ld8(CPU.Register reg) {
     short value = 0;
 
@@ -47,6 +59,7 @@ class InstructionHelper {
     value = mmu.get(PC());
     ld8(reg, value);
   }
+  // ld X, X
   public void ld8(CPU.Register reg1, CPU.Register reg2) {
     ld8(reg1, getReg(reg2));
   }
@@ -54,6 +67,19 @@ class InstructionHelper {
     setReg(reg, value);
   }
 
+  public void ld16_push(CPU.Register reg1, CPU.Register reg2) {
+    short byte1 = 0;
+    short byte2 = 0;
+
+    incPC();
+    byte1 = mmu.get(PC());
+    incPC();
+    byte2 = mmu.get(PC());
+
+    int address = word(byte2, byte1);
+    mmu.set(address, getReg(reg2));
+    mmu.set(inc16(address), getReg(reg1));
+  }
   // ld RR, x
   public void ld16(CPU.Register reg1, CPU.Register reg2) {
     short byte1 = 0;
@@ -66,26 +92,53 @@ class InstructionHelper {
 
     ld16(reg1, reg2, byte1, byte2);
   }
+  public void ld16(CPU.Register reg1, CPU.Register reg2, CPU.Register reg3, CPU.Register reg4) {
+    ld16(reg1, reg2, getReg(reg3), getReg(reg4));
+  }
   private void ld16(CPU.Register reg1, CPU.Register reg2, short byte1, short byte2) {
-      setReg16(reg1, reg2, byte1, byte2);
+    setReg16(reg1, reg2, byte1, byte2);
   }
 
   // LD [HL-], X
+  public void ld16_hld(CPU.Register reg1, CPU.Register reg2, CPU.Register reg3) {
+    ld16_hl(reg1, reg2, reg3);    // LD [HL], A
+    setReg16(reg1, reg2, dec16(reg1, reg2));            // HL--
+  }
+
+  // LD [HL+], X
   public void ld16_hli(CPU.Register reg1, CPU.Register reg2, CPU.Register reg3) {
+    ld16_hl(reg1, reg2, reg3);    // LD [HL], A
+    setReg16(reg1, reg2, inc16(reg1, reg2));            // HL++
+  }
+
+  // LD [HL], X
+  public void ld16_hl(CPU.Register reg1, CPU.Register reg2, CPU.Register reg3) {
     int word = word(reg1, reg2);  // word = [HL]
     mmu.set(word, getReg(reg3));  // LD [word], A
-    dec16(reg1, reg2);            // HL--
   }
 
   public void sbc(CPU.Register reg) {
-    short originalValue = getReg(reg);
     short subtractor = add8(reg, (short)(getFlag(CPU.Flag.C) ? 1 : 0));
-    short result = sub8(CPU.Register.A, subtractor);
+    sub(CPU.Register.A, subtractor);
+  }
+  public void sub(CPU.Register reg) {
+    sub(CPU.Register.A, getReg(reg));
+  }
+  public void sub_pop(CPU.Register reg1, CPU.Register reg2) {
+    int address = word(reg1, reg2);
+    short value = mmu.get(address);
+
+    sub(CPU.Register.A, value);
+  }
+  private void sub(CPU.Register reg, short value) {
+    short originalValue = getReg(reg);
+    short result = sub8(reg, value);
+    setReg(reg, result);
 
     setFlag(CPU.Flag.Z, result == 0);
     setFlag(CPU.Flag.N, true);
-    setFlag(CPU.Flag.H, subHasHalfCarry(originalValue, subtractor));
-    setFlag(CPU.Flag.C, subHasCarry(originalValue, subtractor));
+    setFlag(CPU.Flag.H, subHasHalfCarry(originalValue, value));
+    setFlag(CPU.Flag.C, subHasCarry(originalValue, value));
   }
 
   public void rst(int address) {
@@ -93,19 +146,28 @@ class InstructionHelper {
     jump(0x38);
   }
 
-  // relative jump is flag is NOT SET
+  // relative jump if flag is NOT SET
   public void jrn(CPU.Flag flag) {
+    if (!getFlag(flag)) {
+      Util.log("jrn succeeded");
+      jr();
+    } else { Util.log("jrn failed"); }
+  }
+
+  // relative jump if flag IS SET
+  public void jr(CPU.Flag flag) {
+    if (getFlag(flag))
+      jr();
+  }
+
+  // unconditional relative jump
+  public void jr() {
     incPC();
     byte offset = (byte)mmu.get(PC());  // cast to byte so that sign matters
+    int sum = add16(CPU.Register.PC_0, CPU.Register.PC_1, offset);
 
-    Util.log("jrn 0x" + Util.hex(offset));
-
-    if (getFlag(flag)) {
-      Util.log("jrn succeeded");
-      add16(CPU.Register.PC_0, CPU.Register.PC_1, offset);
-    } else {
-        Util.log("jrn failed");
-    }
+    Util.log("jr 0x" + Util.hex(offset));
+    jump(sum);
   }
 
   public void CB() {
@@ -113,8 +175,102 @@ class InstructionHelper {
     incPC();  // skip CB opcode
   }
 
+  public void DI() {
+    IME = false;
+  }
+
   public void EI() {
     IME = true; //
+  }
+
+  public void inc(CPU.Register reg) {
+    short originalValue = getReg(reg);
+    setReg(reg, inc8(reg));
+
+    setFlag(CPU.Flag.Z, getReg(reg) == 0);
+    setFlag(CPU.Flag.N, false);
+    setFlag(CPU.Flag.H, addHasHalfCarry(originalValue, (short)1));
+  }
+
+  public void inc_mem(CPU.Register reg1, CPU.Register reg2) {
+    int address = word(reg1, reg2);
+    short originalValue = mmu.get(address);
+
+    mmu.set(address, inc8(originalValue));
+  }
+
+  public void inc(CPU.Register reg1, CPU.Register reg2) {
+    int originalValue = word(reg1, reg2);
+    setReg16(reg1, reg2, inc16(reg1, reg2));
+
+    /* Apparently 16 bit increments don't affect registers */
+    // setFlag(CPU.Flag.Z, getReg(reg) == 0);
+    // setFlag(CPU.Flag.N, false);
+    // setFlag(CPU.Flag.H, addHasHalfCarry(originalValue, (short)1));
+  }
+
+  public void dec(CPU.Register reg) {
+    short originalValue = getReg(reg);
+    setReg(reg, dec8(reg));
+
+    setFlag(CPU.Flag.Z, getReg(reg) == 0);
+    setFlag(CPU.Flag.N, true);
+    setFlag(CPU.Flag.H, !subHasHalfCarry(originalValue, (short)1));
+  }
+
+  public void ld8_push(CPU.Register reg1, CPU.Register reg2) {
+    int address = getReg(reg1);
+    short value = getReg(reg2);
+
+    mmu.set(address, value);
+  }
+
+  public void ldh_push() {
+    incPC();
+    short offset = mmu.get(PC());
+    short base = (short)0xFF00;
+
+    Util.log("ldh_push offset == " + Util.hex(offset));
+    Util.log("ldh_push base == " + Util.hex(base));
+    int address = add16(base, offset) & 0xFFFF;
+    Util.log("ldh_push push address == " + Util.hex(address));
+
+    mmu.set(address, getReg(CPU.Register.A));
+  }
+
+  public void ldh_pop() {
+    incPC();
+    short offset = mmu.get(PC());
+    short base = (short)0xFF00;
+
+    Util.log("ldh_pop offset == " + Util.hex(offset));
+    Util.log("ldh_pop base == " + Util.hex(base));
+    int address = add16(base, offset) & 0xFFFF;
+    Util.log("ldh_pop pop address == " + Util.hex(address));
+
+    setReg(CPU.Register.A, mmu.get(address));
+  }
+
+  public void call() {
+    short byte1 = 0;
+    short byte2 = 0;
+
+    incPC();
+    byte1 = mmu.get(PC());
+    incPC();
+    byte2 = mmu.get(PC());
+
+    push(PC()); // store next instruction address for later
+
+    int address = word(byte2, byte1);
+    jump(PC());
+  }
+
+  public void ret(CPU.Flag flag) {
+    if (getFlag(flag)) {
+      int address = pop();
+      jump(address);
+    }
   }
 
   /*
@@ -144,10 +300,6 @@ class InstructionHelper {
   private void setReg16(CPU.Register reg1, CPU.Register reg2, short a, short b) {
     setReg(reg1, a);
     setReg(reg2, b);
-  }
-
-  private void dec16(CPU.Register reg1, CPU.Register reg2) {
-    sub16(reg1, reg2, 1);
   }
 
   // PC manipulators
@@ -189,17 +341,35 @@ class InstructionHelper {
   }
 
   // Arithmetic functions
+  private short inc8(short value) { return add8(value, (short)1); }
+  private short inc8(CPU.Register reg) { return add8(reg, (short)1); }
+
+  private int inc16(int word) { return add16(word, 1); }
+  private int inc16(CPU.Register reg1, CPU.Register reg2) {
+    return add16(reg1, reg2, 1);
+  }
+
+  private short dec8(CPU.Register reg1) { return sub8(reg1, (short)1); }
+  private int dec16(CPU.Register reg1, CPU.Register reg2) {
+    return sub16(reg1, reg2, 1);
+  }
+
   private short add8(CPU.Register reg1, CPU.Register reg2) { return add8(reg1, getReg(reg2)); }
   private short add8(CPU.Register reg, short value) {
     short registerValue = getReg(reg);
-    registerValue += value;
-    registerValue %= 0x100; // 8 bit overflow
-    return registerValue;
+    return add8(registerValue, value);
+  }
+  private short add8(short byte1, short byte2) {
+    short sum = (short)(byte1 + byte2);
+    sum %= 0x100; // 8 bit overflow
+    return sum;
   }
 
   private int add16(CPU.Register reg1, CPU.Register reg2, int word) {
-    int registerValue = word(reg1, reg2);
-    registerValue += word;
+    return add16(word(reg1, reg2), word);
+  }
+  private int add16(int word1, int word2) {
+    int registerValue = word1 + word2;
     registerValue %= 0x10000; // 16 bit overflow
     return registerValue;
   }
@@ -213,8 +383,10 @@ class InstructionHelper {
   }
 
   private int sub16(CPU.Register reg1, CPU.Register reg2, int word) {
-    int registerValue = word(reg1, reg2);
-    registerValue -= word;
+    return sub16(word(reg1, reg2), word);
+  }
+  private int sub16(int word1, int word2) {
+    int registerValue = word1 + word2;
     if (registerValue < 0) registerValue += 0x10000;  // 16 bit underflow
     return registerValue;
   }
@@ -338,5 +510,8 @@ class InstructionHelper {
     }
 
     setPC(address);
+
+    // TODO fix this workaround
+    decPC();  // cpu.tick() to counter cpu.tick incPC()
   }
 }

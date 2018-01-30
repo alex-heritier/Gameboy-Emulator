@@ -1,4 +1,3 @@
 #!/bin/bash
 clear
-javac src/*.java
-java -cp src/ Test
+javac src/*.java && java -cp src/ Test
