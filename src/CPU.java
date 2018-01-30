@@ -1,19 +1,12 @@
 
+import java.util.HashMap;
+
 class CPU {
 
   private MMU mmu;
   private Cart cart;
-
-  private short A;   // accumulator
-  private short F;   // only flags, maybe combine with A?
-  private short B;
-  private short C;
-  private short D;
-  private short E;
-  private short H;
-  private short L;
-  private int SP;  // stack pointer
-  private int PC;  // program counter
+  private HashMap<Register, Short> registers;
+  private InstructionHelper IH;
 
   public enum Flag {
     Z,  // zero
@@ -22,11 +15,39 @@ class CPU {
     C   // carry
   };
 
+  public enum Register { // registers
+    A, F,
+    B, C,
+    D, E,
+    H, L,
+    SP_0, SP_1, // 16 bit register, so two parts
+    PC_0, PC_1  // same
+  }
+
+
   public CPU(MMU mmu, Cart cart) {
     this.mmu = mmu;
     this.cart = cart;
+    this.registers = new HashMap<>();
+    this.IH = new InstructionHelper(registers, mmu);
 
+    setupRegisters();
     loadROM();
+  }
+
+  private void setupRegisters() {
+    registers.put(Register.A, (short)0);
+    registers.put(Register.F, (short)0);
+    registers.put(Register.B, (short)0);
+    registers.put(Register.C, (short)0);
+    registers.put(Register.D, (short)0);
+    registers.put(Register.E, (short)0);
+    registers.put(Register.H, (short)0);
+    registers.put(Register.L, (short)0);
+    registers.put(Register.SP_0, (short)0);
+    registers.put(Register.SP_1, (short)0);
+    registers.put(Register.PC_0, (short)0);
+    registers.put(Register.PC_1, (short)0);
   }
 
   // Load MMU's romBank00 and romBank01 with cart data
@@ -38,82 +59,76 @@ class CPU {
 
   // Run instruction at mmu[PC]
   public void tick() {
-    short instruction = mmu.get(PC);
-    //Util.log("0x" + Util.hex(PC) + " " + Util.hex(instruction));
+    short instruction = mmu.get(IH.PC());
 
     decode(instruction);
+    IH.incPC();
 
-    incPC();
+    //dump();
   }
 
+  public void dump() {
+    Util.log("");
+    Util.log("A\t" + Util.hex(registers.get(Register.A)));
+    Util.log("F\t" + Util.hex(registers.get(Register.F)));
+    Util.log("B\t" + Util.hex(registers.get(Register.B)));
+    Util.log("C\t" + Util.hex(registers.get(Register.C)));
+    Util.log("D\t" + Util.hex(registers.get(Register.D)));
+    Util.log("E\t" + Util.hex(registers.get(Register.E)));
+    Util.log("H\t" + Util.hex(registers.get(Register.H)));
+    Util.log("L\t" + Util.hex(registers.get(Register.L)));
+    int SP = word(registers.get(Register.SP_0), registers.get(Register.SP_1));
+    Util.log("SP\t" + Util.hex(SP));
+    int PC = word(registers.get(Register.PC_0), registers.get(Register.PC_1));
+    Util.log("PC\t" + Util.hex(PC));
+    Util.log("");
+  }
+
+  /*
+   * Instruction helpers
+   */
   private void decode(short instruction) {
-    short tmp1 = 0;
-    short tmp2 = 0;
-
     switch ((int) instruction) {  // cast to remove lossy conversion errors
-
-      case 0x0E:
-      case 0x20:
+      case 0x0E:  // LD C,d8
+        IH.ld8(Register.C);
+        break;
+      case 0x20:  // JR NZ,r8
+        //dump();
+        IH.jrn(Flag.Z);
+        //dump();
+        break;
       case 0x21:  // LD HL,d16
-        incPC();
-        tmp1 = mmu.get(PC);
-        incPC();
-        tmp2 = mmu.get(PC);
-
-        H = tmp2;
-        L = tmp1;
-
+        IH.ld16(Register.H, Register.L);
         break;
-      case 0x26:
+      case 0x26:  // LD H,d8
+        IH.ld8(Register.H);
+        break;
       case 0x31:  // LD SP,d16
-        incPC();
-        tmp1 = mmu.get(PC);
-        incPC();
-        tmp2 = mmu.get(PC);
-
-        SP = word(tmp2, tmp1);
-        Util.log("result!!!!! " + Util.hex(SP));
+        IH.ld16(Register.SP_0, Register.SP_1);
         break;
-      case 0x32:
-      case 0x7C:
+      case 0x32:  // LD (HL-),A
+        IH.ld16_hli(Register.H, Register.L, Register.A);
+        break;
+      case 0x7C:  // LD A,H
+        IH.ld8(Register.A, Register.H);
+        break;
       case 0x9F:  // SBC A,A
-        tmp1 = (short)(A + (getFlag(Flag.C) ? 1 : 0));
-
-        A -= tmp1;
-
-        setFlag(Flag.Z, A == 0);
-        setFlag(Flag.N, true);
-        setFlag(Flag.H, subHasHalfCarry(A, tmp1));
-        setFlag(Flag.C, subHasCarry(A, tmp1));
-
+        IH.sbc(Register.A);
         break;
       case 0xAF:  // XOR A
-        A ^= A; // should always set A to 0
-
-        resetFlags();
-        setFlag(Flag.Z, A == 0);  // should always be set
-
+        IH.xor8(Register.A);
         break;
-      case 0xCB:
-      case 0xFB:
+      case 0xCB:  // PREFIX CB
+        IH.CB();
+        break;
+      case 0xFB:  // EI
+        IH.EI();
+        break;
       case 0xFE:  // CP d8
-        incPC();
-        tmp1 = mmu.get(PC);
-        tmp2 = (short)(A - tmp1);
-
-        // flags
-        setFlag(Flag.Z, tmp2 == 0);
-        setFlag(Flag.N, true);
-        setFlag(Flag.H, subHasHalfCarry(A, tmp1));
-        setFlag(Flag.C, subHasCarry(A, tmp1));
-
-
+        IH.cp();
         break;
       case 0xFF:  // RST 0x38
-        push(PC);
-
-        jump(0x38);
-
+        IH.rst(0x38);
         break;
       default:
         Util.errn("CPU.decode - defaulted on instruction: " + Util.hex(instruction));
@@ -121,127 +136,18 @@ class CPU {
     }
   }
 
-  private static int word(short a, short b) {
-    return (((int)a) << 8) + b;
-  }
-
-  private static boolean addHasHalfCarry(short a, short b) {
-    return (((a & 0xF) + (b & 0xF)) & 0x10) == 0x10;
-  }
-
-  private static boolean subHasHalfCarry(short a, short b) {
-    return ((a & 0xF) - (b & 0xF)) < 0;
-  }
-
-  private static boolean subHasCarry(short a, short b) {
-    return a < b;
-  }
-
-
-  private void incPC() { PC++; PC = PC % 0x10000; }
-  private void decPC() { PC = PC == 0 ? 0xFFFF : PC - 1; }
-
-
-  // Flag manipulators
-  private void setFlag(Flag flag, boolean value) {
-    if (flag == Flag.Z) {
-      if (value)  F |= 0x80;
-      else        F &= 0x7F;
-    }
-    else if (flag == Flag.N) {
-      if (value)  F |= 0x40;
-      else        F &= 0xBF;
-    }
-    else if (flag == Flag.H) {
-      if (value)  F |= 0x20;
-      else        F &= 0xDF;
-    }
-    else if (flag == Flag.C) {
-      if (value)  F |= 0x10;
-      else        F &= 0xEF;
-    }
-  }
-
-  private boolean getFlag(Flag flag) {
-    boolean val = false;
-
-    if (flag == Flag.Z) {
-      val = (F & 0x80) > 0;
-    }
-    else if (flag == Flag.N) {
-      val = (F & 0x40) > 0;
-    }
-    else if (flag == Flag.H) {
-      val = (F & 0x20) > 0;
-    }
-    else if (flag == Flag.C) {
-      val = (F & 0x10) > 0;
-    }
-    else {
-      Util.errn("CPU.getFlag - bad flag " + flag);
-    }
-
-    return val;
-  }
-
-  private void resetFlags() {
-    F &= 0x0F;  // set all flags to 0
-  }
-
-  // Stack manipulators
-  /*
-   *  Pushes the word onto the stack in 2 parts
-   *  example usage: PUSH BC
-   *    [--SP] = B; [--SP] = C;
-   */
-  private void push(int word) {
-    short[] bytes = getBytes(word);
-
-    decSP();  // SP--
-    mmu.set(SP, bytes[0]);  // [SP] = byte1
-
-    decSP();
-    mmu.set(SP, bytes[1]);
-  }
-
-  private int pop() {
-    short byte1 = 0;
-    short byte2 = 0;
-
-    byte1 = mmu.get(SP);
-    incSP();
-    byte2 = mmu.get(SP);
-    incSP();
-
-    return word(byte2, byte1);
-  }
-
-  private static short[] getBytes(int word) {
-    short[] bytes = new short[2];
-
-    bytes[0] = (short)(word >> 8);
-    bytes[1] = (short)(word & 0xFF);
-
-    return bytes;
-  }
-
-  private void incSP() { SP++; SP = SP % 0x10000; }
-  private void decSP() { SP = SP == 0 ? 0xFFFF : SP - 1; }
-
-
-  // Jump helpers
-  private void jump(int address) {
-    if (address < 0 || address > 0xFFFF) {
-      Util.errn("CPU.jump - out of bounds error: 0x" + Util.hex(address));
-      return;
-    }
-
-    PC = address;
-  }
 
   public static void main(String args[]) {
     CPU cpu = new CPU(new MMU(), new Cart("../roms/bios.gb"));
 
-    Util.log("SP == " + cpu.SP);
+    Util.log("SP == " + cpu.SP());
+  }
+
+  private static int word(short a, short b) {
+    return (((int)a) << 8) + b;
+  }
+
+  private int SP() {
+    return word(registers.get(Register.SP_0), registers.get(Register.SP_1));
   }
 }

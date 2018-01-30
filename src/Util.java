@@ -1,5 +1,8 @@
 
 class Util {
+  public static String hex(byte z) {
+    return String.format("%02X", z);
+  }
 
   public static String hex(short z) {
     return String.format("%02X", z);
