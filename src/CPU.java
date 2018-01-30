@@ -54,56 +54,87 @@ class CPU {
 
       case 0x0E:
       case 0x20:
-      case 0x21:
+      case 0x21:  // LD HL,d16
+        incPC();
+        tmp1 = mmu.get(PC);
+        incPC();
+        tmp2 = mmu.get(PC);
+
+        H = tmp2;
+        L = tmp1;
+
+        break;
       case 0x26:
       case 0x31:  // LD SP,d16
-        tmp1 = mmu.get(PC + 1);
-        tmp2 = mmu.get(PC + 2);
-
-        SP = tmp2;
-        SP <<= 8;
-        SP += tmp1;
-
         incPC();
+        tmp1 = mmu.get(PC);
         incPC();
+        tmp2 = mmu.get(PC);
 
+        SP = word(tmp2, tmp1);
         Util.log("result!!!!! " + Util.hex(SP));
         break;
       case 0x32:
       case 0x7C:
-      case 0x9F:
-      case 0xAF:
+      case 0x9F:  // SBC A,A
+        tmp1 = (short)(A + (getFlag(Flag.C) ? 1 : 0));
+
+        A -= tmp1;
+
+        setFlag(Flag.Z, A == 0);
+        setFlag(Flag.N, true);
+        setFlag(Flag.H, subHasHalfCarry(A, tmp1));
+        setFlag(Flag.C, subHasCarry(A, tmp1));
+
+        break;
+      case 0xAF:  // XOR A
+        A ^= A; // should always set A to 0
+
+        resetFlags();
+        setFlag(Flag.Z, A == 0);  // should always be set
+
+        break;
       case 0xCB:
       case 0xFB:
-      case 0xFE:
-
-      /*  TODO BROKEN - TEST HELPER FUNCTIONS
-        tmp1 = mmu.get(PC + 1);
+      case 0xFE:  // CP d8
+        incPC();
+        tmp1 = mmu.get(PC);
         tmp2 = (short)(A - tmp1);
 
         // flags
-        zeroFlag(tmp2 == 0);
-        arithmeticFlag(true);
-        halfCarryFlag(subHasHalfCarry(A, tmp1));
-        carryFlag(A < tmp1);
+        setFlag(Flag.Z, tmp2 == 0);
+        setFlag(Flag.N, true);
+        setFlag(Flag.H, subHasHalfCarry(A, tmp1));
+        setFlag(Flag.C, subHasCarry(A, tmp1));
 
-        incPC();
 
         break;
-        */
-      case 0xFF:
+      case 0xFF:  // RST 0x38
+        push(PC);
+
+        jump(0x38);
+
+        break;
       default:
         Util.errn("CPU.decode - defaulted on instruction: " + Util.hex(instruction));
         break;
     }
   }
 
-  private boolean addHasHalfCarry(short a, short b) {
+  private static int word(short a, short b) {
+    return (((int)a) << 8) + b;
+  }
+
+  private static boolean addHasHalfCarry(short a, short b) {
     return (((a & 0xF) + (b & 0xF)) & 0x10) == 0x10;
   }
 
-  private boolean subHasHalfCarry(short a, short b) {
+  private static boolean subHasHalfCarry(short a, short b) {
     return ((a & 0xF) - (b & 0xF)) < 0;
+  }
+
+  private static boolean subHasCarry(short a, short b) {
+    return a < b;
   }
 
 
@@ -146,11 +177,71 @@ class CPU {
     else if (flag == Flag.C) {
       val = (F & 0x10) > 0;
     }
+    else {
+      Util.errn("CPU.getFlag - bad flag " + flag);
+    }
 
     return val;
   }
 
+  private void resetFlags() {
+    F &= 0x0F;  // set all flags to 0
+  }
+
+  // Stack manipulators
+  /*
+   *  Pushes the word onto the stack in 2 parts
+   *  example usage: PUSH BC
+   *    [--SP] = B; [--SP] = C;
+   */
+  private void push(int word) {
+    short[] bytes = getBytes(word);
+
+    decSP();  // SP--
+    mmu.set(SP, bytes[0]);  // [SP] = byte1
+
+    decSP();
+    mmu.set(SP, bytes[1]);
+  }
+
+  private int pop() {
+    short byte1 = 0;
+    short byte2 = 0;
+
+    byte1 = mmu.get(SP);
+    incSP();
+    byte2 = mmu.get(SP);
+    incSP();
+
+    return word(byte2, byte1);
+  }
+
+  private static short[] getBytes(int word) {
+    short[] bytes = new short[2];
+
+    bytes[0] = (short)(word >> 8);
+    bytes[1] = (short)(word & 0xFF);
+
+    return bytes;
+  }
+
+  private void incSP() { SP++; SP = SP % 0x10000; }
+  private void decSP() { SP = SP == 0 ? 0xFFFF : SP - 1; }
+
+
+  // Jump helpers
+  private void jump(int address) {
+    if (address < 0 || address > 0xFFFF) {
+      Util.errn("CPU.jump - out of bounds error: 0x" + Util.hex(address));
+      return;
+    }
+
+    PC = address;
+  }
+
   public static void main(String args[]) {
     CPU cpu = new CPU(new MMU(), new Cart("../roms/bios.gb"));
+
+    Util.log("SP == " + cpu.SP);
   }
 }
