@@ -12,6 +12,10 @@ class Util {
     return String.format("%04X", z);
   }
 
+  public static String hex(CPUMath.Result z) {
+    return String.format("%04X", z.get16());
+  }
+
   public static String bin(short z) {
     String s1 = String.format("%16s", Integer.toBinaryString(z & 0xFFFF)).replace(' ', '0');
     return s1;
