@@ -71,6 +71,31 @@ class CPUState {
     setReg(reg2, b);
   }
 
+  // PC manipulators
+  public int PC() { return getReg16(CPUState.R.PC_0, CPUState.R.PC_1); }
+  public void incPC() {
+    short byte1 = getReg(CPUState.R.PC_0);
+    short byte2 = getReg(CPUState.R.PC_1);
+    setPC(CPUMath.inc16(byte1, byte2));
+  }
+  public void decPC() {
+    short byte1 = getReg(CPUState.R.PC_0);
+    short byte2 = getReg(CPUState.R.PC_1);
+    setPC(CPUMath.dec16(byte1, byte2));
+  }
+  public void setPC(int word) {
+    setReg16(CPUState.R.PC_0, CPUState.R.PC_1, word);
+  }
+
+  // SP manipulators
+  public int SP() { return getReg16(CPUState.R.SP_0, CPUState.R.SP_1); }
+  public void incSP() { setSP(SP() + 1); }
+  public void decSP() { setSP(SP() - 1); }
+  public void setSP(int word) {
+    setReg16(CPUState.R.SP_0, CPUState.R.SP_1, word);
+  }
+
+
   /*
   * Flag helpers
   */
@@ -79,20 +104,20 @@ class CPUState {
 
     short currentFlags = getReg(CPUState.R.F);
     if (flag == CPUState.Flag.Z) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x80);
-      else        newFlags = CPUMath.and8(currentFlags, (short)0x7F);
+      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x80).get8();
+      else        newFlags = CPUMath.and8(currentFlags, (short)0x7F).get8();
     }
     else if (flag == CPUState.Flag.N) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x40);
-      else        newFlags = CPUMath.and8(currentFlags, (short)0xBF);
+      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x40).get8();
+      else        newFlags = CPUMath.and8(currentFlags, (short)0xBF).get8();
     }
     else if (flag == CPUState.Flag.H) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x20);
-      else        newFlags = CPUMath.and8(currentFlags, (short)0xDF);
+      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x20).get8();
+      else        newFlags = CPUMath.and8(currentFlags, (short)0xDF).get8();
     }
     else if (flag == CPUState.Flag.C) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x10);
-      else        newFlags = CPUMath.and8(currentFlags, (short)0xEF);
+      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x10).get8();
+      else        newFlags = CPUMath.and8(currentFlags, (short)0xEF).get8();
     }
 
     setReg(CPUState.R.F, newFlags);
@@ -103,16 +128,16 @@ class CPUState {
 
     short currentFlags = getReg(CPUState.R.F);
     if (flag == CPUState.Flag.Z) {
-      val = CPUMath.and8(currentFlags, (short)0x80) > 0;
+      val = CPUMath.and8(currentFlags, (short)0x80).get8() > 0;
     }
     else if (flag == CPUState.Flag.N) {
-      val = CPUMath.and8(currentFlags, (short)0x40) > 0;
+      val = CPUMath.and8(currentFlags, (short)0x40).get8() > 0;
     }
     else if (flag == CPUState.Flag.H) {
-      val = CPUMath.and8(currentFlags, (short)0x20) > 0;
+      val = CPUMath.and8(currentFlags, (short)0x20).get8() > 0;
     }
     else if (flag == CPUState.Flag.C) {
-      val = CPUMath.and8(currentFlags, (short)0x10) > 0;
+      val = CPUMath.and8(currentFlags, (short)0x10).get8() > 0;
     }
     else {
       Util.errn("CPUState.getFlag - bad flag " + flag);

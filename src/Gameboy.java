@@ -12,9 +12,10 @@ class Gameboy {
 
   public void run() {
     // cpu.dump();
-    for (int i = 0; i < 0x30; i++) {
+    for (int i = 0; i < 0x6050; i++) {
       cpu.tick();
     }
     // cpu.dump();
+    Util.log("CPU checksum: " + Util.hex(cpu.checksum()));
   }
 }

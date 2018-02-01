@@ -30,9 +30,20 @@ class CPUMath {
 
 
   // Logic functions
-  public static short or8(short byte1, short byte2) { return (short)(byte1 | byte2); }
-  public static short xor8(short byte1, short byte2) { return (short)(byte1 ^ byte2); }
-  public static short and8(short byte1, short byte2) { return (short)(byte1 & byte2); }
+  public static Result or8(short byte1, short byte2) {
+    short result = (short)(byte1 | byte2);
+    return new Result(result, result == 0, false, false, false);
+  }
+
+  public static Result xor8(short byte1, short byte2) {
+    short result = (short)(byte1 ^ byte2);
+    return new Result(result, result == 0, false, false, false);
+  }
+
+  public static Result and8(short byte1, short byte2) {
+    short result = (short)(byte1 & byte2);
+    return new Result(result, result == 0, false, false, false);
+  }
 
 
   // Arithmetic functions
@@ -44,7 +55,7 @@ class CPUMath {
     return inc16(word);
   }
 
-  public static short dec8(short value) { return sub8(value, (short)1); }
+  public static Result dec8(short value) { return sub8(value, (short)1); }
 
   public static int dec16(int word) { return sub16(word, 1); }
   public static int dec16(short byte1, short byte2) {
@@ -54,7 +65,7 @@ class CPUMath {
 
   public static Result add8(short byte1, short byte2) {
     short result = (short)(byte1 + byte2);
-    result &= 0xFF; // 8 bit overflow
+    result &= 0xFF; // handle 8 bit overflow
 
     boolean z = result == 0;
     boolean n = true;
@@ -71,10 +82,20 @@ class CPUMath {
     return result;
   }
 
-  public static short sub8(short byte1, short byte2) {
+  public static Result sub8(short byte1, short byte2) {
     short result = (short)(byte1 - byte2);
     result &= 0xFF;
-    return result;
+
+    boolean z = result == 0;
+    boolean n = true;
+    // if lower nibble 1 < lower nibble 2, half carry occurred
+    boolean h = (byte1 & 0xF) < (byte2 & 0xF);
+
+    boolean c = byte1 < byte2;
+
+    // http://www.nickpelling.com/gameboymultiply.html
+    // This says to only set h and c if there was NO carry
+    return new Result(result, z, n, !h, !c);
   }
 
   public static int sub16(int word1, int word2) {
@@ -85,13 +106,13 @@ class CPUMath {
 
 
   public static void main(String args[]) {
-    short arg1 = (short)0xFF;
-    short arg2 = (short)0x00;
+    short arg1 = (short)0xCD;
+    short arg2 = (short)0x08;
 
     Result result = add8(arg1, arg2);
 
-    Util.log("arg1 == " + Util.hex(arg1));
-    Util.log("arg2 == " + Util.hex(arg2));
+    Util.log("arg1 == " + Util.bin(arg1));
+    Util.log("arg2 == " + Util.bin(arg2));
     Util.log("### Results");
     Util.log(result.toString());
 
@@ -123,7 +144,7 @@ class CPUMath {
       this.c = c;
     }
 
-    public int get8() { return result & 0xFF; } // force result to 8 bits
+    public short get8() { return (short)(result & 0xFF); } // force result to 8 bits
     public int get16() { return result & 0xFFFF; }  // force result to 16 bits
 
     public boolean getFlag(CPUState.Flag flag) {
@@ -149,10 +170,10 @@ class CPUMath {
       String str = "";
 
       str += Util.hex(get16());
-      str += "\nz: " + z;
-      str += "\nn: " + n;
-      str += "\nh: " + h;
-      str += "\nc: " + c;
+      str += "\nZ: " + (z ? 1 : 0);
+      str += "\nN: " + (n ? 1 : 0);
+      str += "\nH: " + (h ? 1 : 0);
+      str += "\nC: " + (c ? 1 : 0);
 
       return str;
     }

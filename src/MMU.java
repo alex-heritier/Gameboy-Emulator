@@ -132,32 +132,32 @@ about The Cartridge Header.
     int rowMarker = 0x10;
     int columnMarker = 0x04;
 
-    short i = 0;
+    int i = 0;
 
     // romBank00
-    z += "Rom Bank 00\n0x" + Util.hex(i) + "\t";
-    for (; i < 0x4000; i++) {
-      z += Util.hex(get(i));
+    // z += "Rom Bank 00\n0x" + Util.hex(i) + "\t";
+    // for (i = 0; i < 0x4000; i++) {
+    //   z += Util.hex(get(i));
+    //
+    //   if ((i + 1) % rowMarker == 0)        z += "\n0x" + Util.hex(i + 1) + "\t";
+    //   else if ((i + 1) % columnMarker == 0)    z += " ";
+    // }
+    // z += "\n";
+    //
+    // // romBank01
+    // z += "Rom Bank 01\n";
+    // for (i = 0x4000; i < 0x8000; i++) {
+    //   z += Util.hex(get(i));
+    //
+    //   if ((i + 1) % rowMarker == 0)        z += "\n";
+    //   else if ((i + 1) % columnMarker == 0)    z += " ";
+    // }
+    // z += "\n";
 
-      if ((i + 1) % rowMarker == 0)        z += "\n0x" + Util.hex(i + 1) + "\t";
-      else if ((i + 1) % columnMarker == 0)    z += " ";
-    }
-    z += "\n";
 
-    // romBank01
-    z += "Rom Bank 01\n";
-    for (; i < 0x8000; i++) {
-      z += Util.hex(get(i));
-
-      if ((i + 1) % rowMarker == 0)        z += "\n";
-      else if ((i + 1) % columnMarker == 0)    z += " ";
-    }
-    z += "\n";
-
-    /*
     // VRAM
     z += "VRAM\n";
-    for (; i < 0xA000; i++) {
+    for (i = 0x8000; i < 0xA000; i++) {
       z += Util.hex(get(i));
 
       if ((i + 1) % rowMarker == 0)        z += "\n";
@@ -166,15 +166,14 @@ about The Cartridge Header.
     z += "\n";
 
     // everything else
-    z += "Everything else\n";
-    for (; i < 0x10000; i++) {
-      z += Util.hex(get(i));
-
-      if ((i + 1) % rowMarker == 0)        z += "\n";
-      else if ((i + 1) % columnMarker == 0)    z += " ";
-    }
-    z += "\n";
-    */
+    // z += "Everything else\n";
+    // for (; i < 0x10000; i++) {
+    //   z += Util.hex(get(i));
+    //
+    //   if ((i + 1) % rowMarker == 0)        z += "\n";
+    //   else if ((i + 1) % columnMarker == 0)    z += " ";
+    // }
+    // z += "\n";
 
     return z;
   }
