@@ -5,7 +5,11 @@ class Test {
     Util.log("Gameboy Emulator");
     Util.log("################");
 
-    Cart cart = new Cart("roms/bios.gb");
+    String bios = "roms/bios.gb";
+    String test = "dev/test.gb";
+    String blargg = "roms/tests/cpu_instrs/individual/06-ld r,r.gb";
+
+    Cart cart = new Cart(test);
     // Util.log("GB Bios: ");
     // Util.log(cart.toString());
 

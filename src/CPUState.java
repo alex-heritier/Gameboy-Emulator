@@ -73,24 +73,16 @@ class CPUState {
 
   // PC manipulators
   public int PC() { return getReg16(CPUState.R.PC_0, CPUState.R.PC_1); }
-  public void incPC() {
-    short byte1 = getReg(CPUState.R.PC_0);
-    short byte2 = getReg(CPUState.R.PC_1);
-    setPC(CPUMath.inc16(byte1, byte2));
-  }
-  public void decPC() {
-    short byte1 = getReg(CPUState.R.PC_0);
-    short byte2 = getReg(CPUState.R.PC_1);
-    setPC(CPUMath.dec16(byte1, byte2));
-  }
+  public void incPC() { setPC(CPUMath.inc16(PC())); }
+  public void decPC() { setPC(CPUMath.dec16(PC())); }
   public void setPC(int word) {
     setReg16(CPUState.R.PC_0, CPUState.R.PC_1, word);
   }
 
   // SP manipulators
   public int SP() { return getReg16(CPUState.R.SP_0, CPUState.R.SP_1); }
-  public void incSP() { setSP(SP() + 1); }
-  public void decSP() { setSP(SP() - 1); }
+  public void incSP() { setSP(CPUMath.inc16(SP())); }
+  public void decSP() { setSP(CPUMath.dec16(SP())); }
   public void setSP(int word) {
     setReg16(CPUState.R.SP_0, CPUState.R.SP_1, word);
   }

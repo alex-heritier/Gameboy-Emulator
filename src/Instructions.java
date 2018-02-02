@@ -87,10 +87,10 @@ class Instructions {
  // unconditional relative jump
  public void jr() {
    state.incPC();
-   byte offset = (byte)mmu.get(state.PC());  // cast to byte so that sign matters
+   byte offset = (byte)readMem8(state.PC());  // cast to byte so that sign matters
    int address = add16(CPUState.R.PC_0, CPUState.R.PC_1, offset);
 
-   Util.log("jr 0x" + Util.hex(offset));
+   // Util.log("jr 0x" + Util.hex(offset));
    jump(address);
  }
 
@@ -99,6 +99,8 @@ class Instructions {
  public void jr(CPUState.Flag flag) {
    if (state.getFlag(flag))
      jr();
+   else
+    state.incPC();  // skip address
  }
 
  //     - jrn FLAG a8
@@ -106,11 +108,14 @@ class Instructions {
  public void jrn(CPUState.Flag flag) {
    if (!state.getFlag(flag))
      jr();
+   else
+    state.incPC();  // skip address
  }
 
  //     - ret
  public void ret() {
    int address = pop();
+   // Util.log("RET - address: " + Util.hex(address));
    jump(address);
  }
 
@@ -135,6 +140,7 @@ class Instructions {
  //     - rst a8
  public void rst(int address) {
    push(state.PC());
+   address = CPUMath.dec16(address);  // counteract cpu.tick()'s auto-increment
    jump(address);
  }
 
@@ -143,10 +149,11 @@ class Instructions {
    int address = 0;
 
    state.incPC();
-   push(state.PC());  // push PC onto stack
    address = readMem16(state.PC());
    state.incPC();
+   push(state.PC());  // push address of next instruction on stack
 
+   address = CPUMath.dec16(address);  // counteract cpu.tick()'s auto increment
    jump(address);
  }
 
@@ -500,7 +507,7 @@ class Instructions {
  //     - sub [HL]
  public void sub(CPUState.R reg1, CPUState.R reg2) {
    int address = word(reg1, reg2);
-   short value = mmu.get(address);
+   short value = readMem8(address);
 
    sub(CPUState.R.A, value);
  }
@@ -846,10 +853,9 @@ class Instructions {
   *    [--SP] = B; [--SP] = C;
   */
   private void push(int word) {
-    short[] bytes = CPUMath.toBytes(word);
-
     state.decSP();  // SP--
     state.decSP();  // SP--
+    // Util.log("PUSH - address: " + Util.hex(state.SP()) + "\tvalue: " + Util.hex(word));
     writeMem16(state.SP(), word);  // [SP] = byte1
   }
 
@@ -857,13 +863,17 @@ class Instructions {
     int word = readMem16(state.SP());
     state.incSP();
     state.incSP();
-
+    // Util.log("POP - address: " + Util.hex(state.SP()) + "\tvalue: " + Util.hex(word));
     return word;
   }
 
 
   // MMU helpers
   private void writeMem8(int address, short value) {
+    // Log Link Cable writes
+    if (address == 0xFF01) {
+      Util.log("LINK CABLE - " + Util.hex(value) + "\t" + (char)value);
+    }
     mmu.set(address, value);
   }
 
@@ -891,14 +901,14 @@ class Instructions {
   // Jump helpers
   private void jump(int address) {
     if (address < 0 || address > 0xFFFF) {
-      Util.errn("CPUState.jump - out of bounds error: 0x" + Util.hex(address));
+      Util.errn("Instructions.jump - out of bounds error: 0x" + Util.hex(address));
       return;
     }
 
     state.setPC(address);
   }
 
-  public int word(CPUState.R reg1, CPUState.R reg2) {
+  private int word(CPUState.R reg1, CPUState.R reg2) {
     return CPUMath.word(state.getReg(reg1), state.getReg(reg2));
   }
 }

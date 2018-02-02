@@ -9,10 +9,10 @@ class CPU {
   private Instructions ins;
 
 
-  public CPU(MMU mmu, Cart cart) {
+  public CPU(CPUState state, MMU mmu, Cart cart) {
     this.mmu = mmu;
     this.cart = cart;
-    this.state = new CPUState();
+    this.state = state;
     this.ins = new Instructions(state, mmu);
 
     loadROM();
@@ -39,18 +39,16 @@ class CPU {
 
   public void dump() {
     Util.log("");
-    Util.log("A\t" + Util.hex(state.getReg(CPUState.R.A)));
-    Util.log("F\t" + Util.hex(state.getReg(CPUState.R.F)));
-    Util.log("B\t" + Util.hex(state.getReg(CPUState.R.B)));
-    Util.log("C\t" + Util.hex(state.getReg(CPUState.R.C)));
-    Util.log("D\t" + Util.hex(state.getReg(CPUState.R.D)));
-    Util.log("E\t" + Util.hex(state.getReg(CPUState.R.E)));
-    Util.log("H\t" + Util.hex(state.getReg(CPUState.R.H)));
-    Util.log("L\t" + Util.hex(state.getReg(CPUState.R.L)));
-    int SP = state.getReg16(CPUState.R.SP_0, CPUState.R.SP_1);
-    Util.log("SP\t" + Util.hex(SP));
-    int PC = state.getReg16(CPUState.R.PC_0, CPUState.R.PC_1);
-    Util.log("PC\t" + Util.hex(PC));
+    Util.log("AF\t" + Util.hex(state.getReg16(CPUState.R.A, CPUState.R.F)));
+    Util.log("BC\t" + Util.hex(state.getReg16(CPUState.R.B, CPUState.R.C)));
+    Util.log("DE\t" + Util.hex(state.getReg16(CPUState.R.D, CPUState.R.E)));
+    Util.log("HL\t" + Util.hex(state.getReg16(CPUState.R.H, CPUState.R.L)));
+    Util.log("SP\t" + Util.hex(state.getReg16(CPUState.R.SP_0, CPUState.R.SP_1)));
+    Util.log("PC\t" + Util.hex(state.getReg16(CPUState.R.PC_0, CPUState.R.PC_1)));
+    Util.log("Z\t" + (state.getFlag(CPUState.Flag.Z) ? 1 : 0));
+    Util.log("N\t" + (state.getFlag(CPUState.Flag.N) ? 1 : 0));
+    Util.log("H\t" + (state.getFlag(CPUState.Flag.H) ? 1 : 0));
+    Util.log("C\t" + (state.getFlag(CPUState.Flag.C) ? 1 : 0));
     Util.log("");
   }
 
@@ -710,7 +708,7 @@ class CPU {
         ins.jpn(CPUState.Flag.C);
         break;
       case 0xD3:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xD4:  // CALL NC,a16
         ins.calln(CPUState.Flag.C);
@@ -734,13 +732,13 @@ class CPU {
         ins.jp(CPUState.Flag.C);
         break;
       case 0xDB:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xDC:  // CALL C,a16
         ins.call(CPUState.Flag.C);
         break;
       case 0xDD:  // N/A
-        unimplemented(instruction);
+        dump(); // TODO change back to missing(instruction);
         break;
       case 0xDE:  // SBC A,d8
         ins.sbc();
@@ -758,10 +756,10 @@ class CPU {
         ins.ld8_store(CPUState.R.C, CPUState.R.A);
         break;
       case 0xE3:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xE4:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xE5:  // PUSH HL
         ins.push(CPUState.R.H, CPUState.R.L);
@@ -782,13 +780,13 @@ class CPU {
         ins.ld8_store(CPUState.R.A);
         break;
       case 0xEB:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xEC:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xED:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xEE:  // XOR d8
         ins.xor();
@@ -809,7 +807,7 @@ class CPU {
         ins.DI();
         break;
       case 0xF4:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xF5:  // PUSH AF
         ins.push(CPUState.R.A, CPUState.R.F);
@@ -833,10 +831,10 @@ class CPU {
         ins.EI();
         break;
       case 0xFC:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xFD:  // N/A
-        unimplemented(instruction);
+        missing(instruction);
         break;
       case 0xFE:  // CP d8
         ins.cp();
@@ -850,13 +848,13 @@ class CPU {
     }
   }
 
-  private void unimplemented(short instruction) {
-    Util.errn("Attempted to run bad instruction 0x" + Util.hex(instruction));
+  private void missing(short instruction) {
+    Util.errn("Attempted to run missing instruction 0x" + Util.hex(instruction));
   }
 
 
   public static void main(String args[]) {
-    CPU cpu = new CPU(new MMU(), new Cart("../roms/bios.gb"));
+    CPU cpu = new CPU(new CPUState(), new MMU(), new Cart("../roms/bios.gb"));
 
     Util.log("SP == " + cpu.state.SP());
   }

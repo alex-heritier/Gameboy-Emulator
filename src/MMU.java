@@ -126,6 +126,7 @@ about The Cartridge Header.
     }
   }
 
+  public void dump() { Util.log(toString()); }
   public String toString() {
     String z = "";
 

@@ -46,6 +46,30 @@ class CPUMath {
   }
 
 
+  // Bit manipulation
+  public static int getBit(short value, int n) {
+    if (n < 0 || n > 7) return 0;
+
+    short bitmask = (short)(1 << n);
+    return value & bitmask;
+  }
+
+  public static short setBit(short value, int n) {
+    if (n < 0 || n > 7) return 0;
+
+    short bitmask = (short)(1 << n);
+    return (short)(value | bitmask);
+  }
+
+  public static short resetBit(short value, int n) {
+    if (n < 0 || n > 7) return 0;
+
+    short bitmask = (short)(1 << n);
+    return (short)((value | bitmask) ^ bitmask);
+  }
+
+
+
   // Arithmetic functions
   public static Result inc8(short value) { return add8(value, (short)1); }
 
@@ -90,12 +114,9 @@ class CPUMath {
     boolean n = true;
     // if lower nibble 1 < lower nibble 2, half carry occurred
     boolean h = (byte1 & 0xF) < (byte2 & 0xF);
-
     boolean c = byte1 < byte2;
 
-    // http://www.nickpelling.com/gameboymultiply.html
-    // This says to only set h and c if there was NO carry
-    return new Result(result, z, n, !h, !c);
+    return new Result(result, z, n, h, c);
   }
 
   public static int sub16(int word1, int word2) {

@@ -22,7 +22,7 @@ class Cart implements DataSource {
         val &= 0xFF;
         bytes[i] = val;
       }
-    } catch (Exception e) {e.printStackTrace();}
+    } catch (Exception e) {e.printStackTrace(); System.exit(1);}
   }
 
   public int size() {
