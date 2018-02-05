@@ -37,6 +37,19 @@ class CPUState {
     registers.put(R.SP_1, (short)0);
     registers.put(R.PC_0, (short)0);
     registers.put(R.PC_1, (short)0);
+
+    // Initial state
+    // AF = 1180
+    // BC = 0000
+    // DE = FF56
+    // HL = 000D
+    // SP = FFFE
+    // Z flag = 1
+    setReg16(R.A, R.F, 0x1180); // sets zero flag too
+    setReg16(R.B, R.C, 0x0000);
+    setReg16(R.D, R.E, 0xFF56);
+    setReg16(R.H, R.L, 0x000D);
+    setReg16(R.SP_0, R.SP_1, 0xFFFE);
   }
 
   public boolean IME() { return IME; }

@@ -1,7 +1,7 @@
-run: Test.class test.gb
-	java -cp src/ Test
+run: Tester.class test.gb
+	java -cp src/ Tester
 
-Test.class: src/*.class
+Tester.class: src/*.class
 	javac src/*.java
 
 test.gb:

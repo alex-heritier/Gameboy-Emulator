@@ -84,7 +84,7 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _rlc(value);
+      _rlc(address, value);
     }
     // Otherwise get the register index normally
     else {
@@ -92,11 +92,16 @@ class CBInstructions {
     }
   }
 
+  private void _rlc(int address, short value) {
+    short shifted = _rlc(value);
+    writeMem8(address, shifted);
+  }
   private void _rlc(CPUState.R reg) {
     short registerValue = state.getReg(reg);
-    _rlc(registerValue);
+    short shifted = _rlc(registerValue);
+    state.setReg(reg, shifted);
   }
-  private void _rlc(short value) {
+  private short _rlc(short value) {
     state.setFlag(CPUState.Flag.C, (value & (short)0x80) != 0);
 
     short shifted = (short)(((value << 1) | (value >> 7)) & 0xFF);
@@ -104,6 +109,8 @@ class CBInstructions {
     state.setFlag(CPUState.Flag.Z, shifted == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);
+
+    return shifted;
   }
 
   //  - RL
@@ -116,18 +123,24 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _rl(value);
+      _rl(address, value);
     }
     // Otherwise get the register index normally
     else {
       _rl(bitHelpers[registerIndex]);
     }
   }
+
+  private void _rl(int address, short value) {
+    short shifted = _rl(value);
+    writeMem8(address, shifted);
+  }
   private void _rl(CPUState.R reg) {
     short registerValue = state.getReg(reg);
-    _rl(registerValue);
+    short shifted = _rl(registerValue);
+    state.setReg(reg, shifted);
   }
-  private void _rl(short value) {
+  private short _rl(short value) {
     int oldCarry = state.getFlag(CPUState.Flag.C) ? 1 : 0;
     state.setFlag(CPUState.Flag.C, (value & (short)0x80) != 0);
 
@@ -136,6 +149,8 @@ class CBInstructions {
     state.setFlag(CPUState.Flag.Z, shifted == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);
+
+    return shifted;
   }
 
   //  - RRC
@@ -148,7 +163,7 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _rrc(value);
+      _rrc(address, value);
     }
     // Otherwise get the register index normally
     else {
@@ -156,11 +171,16 @@ class CBInstructions {
     }
   }
 
+  private void _rrc(int address, short value) {
+    short shifted = _rrc(value);
+    writeMem8(address, shifted);
+  }
   private void _rrc(CPUState.R reg) {
     short registerValue = state.getReg(reg);
-    _rrc(registerValue);
+    short shifted = _rrc(registerValue);
+    state.setReg(reg, shifted);
   }
-  private void _rrc(short value) {
+  private short _rrc(short value) {
     state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
 
     short shifted = (short)(((value >> 1) | (value << 7)) & 0xFF);
@@ -168,6 +188,8 @@ class CBInstructions {
     state.setFlag(CPUState.Flag.Z, shifted == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);
+
+    return shifted;
   }
 
   //  - RR
@@ -180,7 +202,7 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _rr(value);
+      _rr(address, value);
     }
     // Otherwise get the register index normally
     else {
@@ -188,11 +210,17 @@ class CBInstructions {
     }
   }
 
+  private void _rr(int address, short value) {
+    short shifted = _rr(value);
+    writeMem8(address, shifted);
+
+  }
   private void _rr(CPUState.R reg) {
     short registerValue = state.getReg(reg);
-    _rr(registerValue);
+    short shifted = _rr(registerValue);
+    state.setReg(reg, shifted);
   }
-  private void _rr(short value) {
+  private short _rr(short value) {
     int oldCarry = state.getFlag(CPUState.Flag.C) ? 1 : 0;
     state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
 
@@ -201,6 +229,8 @@ class CBInstructions {
     state.setFlag(CPUState.Flag.Z, shifted == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);
+
+    return shifted;
   }
 
   //  - SLA
@@ -213,7 +243,7 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _sla(value);
+      _sla(address, value);
     }
     // Otherwise get the register index normally
     else {
@@ -221,11 +251,16 @@ class CBInstructions {
     }
   }
 
+  private void _sla(int address, short value) {
+    short shifted = _sla(value);
+    writeMem8(address, shifted);
+  }
   private void _sla(CPUState.R reg) {
     short registerValue = state.getReg(reg);
-    _sla(registerValue);
+    short shifted = _sla(registerValue);
+    state.setReg(reg, shifted);
   }
-  private void _sla(short value) {
+  private short _sla(short value) {
     state.setFlag(CPUState.Flag.C, (value & (short)0x80) != 0);
 
     short shifted = (short)((value << 1) & 0xFF);
@@ -233,6 +268,8 @@ class CBInstructions {
     state.setFlag(CPUState.Flag.Z, shifted == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);
+
+    return shifted;
   }
 
   //  - SRA
@@ -245,7 +282,7 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _sra(value);
+      _sra(address, value);
     }
     // Otherwise get the register index normally
     else {
@@ -253,11 +290,16 @@ class CBInstructions {
     }
   }
 
+  private void _sra(int address, short value) {
+    short shifted = _sra(value);
+    writeMem8(address, shifted);
+  }
   private void _sra(CPUState.R reg) {
     short registerValue = state.getReg(reg);
-    _sra(registerValue);
+    short shifted = _sra(registerValue);
+    state.setReg(reg, shifted);
   }
-  private void _sra(short value) {
+  private short _sra(short value) {
     state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
 
     // MSB isn't affected
@@ -266,6 +308,8 @@ class CBInstructions {
     state.setFlag(CPUState.Flag.Z, shifted == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);
+
+    return shifted;
   }
 
   // SWAP
@@ -278,7 +322,7 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _swap(value);
+      _swap(address, value);
     }
     // Otherwise get the register index normally
     else {
@@ -286,17 +330,24 @@ class CBInstructions {
     }
   }
 
+  private void _swap(int address, short value) {
+    short newValue = _swap(value);
+    writeMem8(address, newValue);
+  }
   private void _swap(CPUState.R reg) {
     short registerValue = state.getReg(reg);
-    _swap(registerValue);
+    short newValue = _swap(registerValue);
+    state.setReg(reg, newValue);
   }
-  private void _swap(short value) {
-    value = (short)(value << 4 | value >> 4);
+  private short _swap(short value) {
+    short newValue = (short)(value << 4 | value >> 4);
 
     state.setFlag(CPUState.Flag.Z, value == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);
     state.setFlag(CPUState.Flag.C, false);
+
+    return newValue;
   }
 
   // SRL
@@ -309,7 +360,7 @@ class CBInstructions {
     if (registerIndex == 6) {
       int address = word(CPUState.R.H, CPUState.R.L);
       short value = readMem8(address);
-      _srl(value);
+      _srl(address, value);
     }
     // Otherwise get the register index normally
     else {
@@ -317,15 +368,23 @@ class CBInstructions {
     }
   }
 
-  private void _srl(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    _srl(registerValue);
-  }
-  private void _srl(short value) {
+  private void _srl(int address, short value) {
     state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
 
     short shifted = (short)((value >> 1) & 0xFF);
 
+    writeMem8(address, shifted);
+    state.setFlag(CPUState.Flag.Z, shifted == 0);
+    state.setFlag(CPUState.Flag.N, false);
+    state.setFlag(CPUState.Flag.H, false);
+  }
+  private void _srl(CPUState.R reg) {
+    short value = state.getReg(reg);
+    state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
+
+    short shifted = (short)((value >> 1) & 0xFF);
+
+    state.setReg(reg, shifted);
     state.setFlag(CPUState.Flag.Z, shifted == 0);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, false);

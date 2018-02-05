@@ -1,5 +1,13 @@
 
+import java.util.ArrayList;
+import java.util.Collections;
+
 class MMU implements DataSource {
+
+  private ArrayList<Pair> memoryAccesses;
+  private boolean logWrites;
+
+  private PPU ppu;
 
   private short ier;             // FFFF,        Interrupt Enable Register
   private short[] highRAM;       // FF80 - FFFE
@@ -32,7 +40,12 @@ are required to be specified correctly. For more information read the chapter
 about The Cartridge Header.
 */
 
-  public MMU() {
+  public MMU(PPU ppu) {
+    memoryAccesses = new ArrayList<Pair>();
+    logWrites = false;
+
+    this.ppu = ppu;
+
     highRAM       = new short[0xFFFF - 0xFF80];
     io            = new short[0xFF80 - 0xFF00];
     notUsable     = new short[0xFF00 - 0xFEA0];
@@ -92,14 +105,18 @@ about The Cartridge Header.
       return;
     }
 
+    if (logWrites) memoryAccesses.add(new Pair(address, value));
+
     // 0xFFFF
     if (address == 0xFFFF)
       ier = value;
     // 0xFF80 - 0xFFFE
     else if (address >= 0xFF80)
       highRAM[address - 0xFF80] = value;
-    else if (address >= 0xFF00)
+    else if (address >= 0xFF00) {
       io[address - 0xFF00] = value;
+      handleIO(address, value);
+    }
     else if (address >= 0xFEA0)
       notUsable[address - 0xFEA0] = value;
     else if (address >= 0xFE00)
@@ -120,13 +137,28 @@ about The Cartridge Header.
       romBank00[address] = value;
   }
 
+  private void handleIO(int address, short value) {
+    ppu.handle(address, value);
+  }
+
   private void clear() {
     for (int i = 0; i < 0x10000; i++) {
       set(i, (short)0x00);
     }
   }
 
-  public void dump() { Util.log(toString()); }
+  public void log(boolean b) {
+    logWrites = b;
+  }
+
+  public void dump() {
+    Util.log("Memory accesses");
+    Collections.sort(memoryAccesses);
+    for (Pair pair : memoryAccesses) {
+      Util.log(Util.hex(pair.address) + "\t" + Util.hex(pair.value));
+    }
+  }
+
   public String toString() {
     String z = "";
 
@@ -177,5 +209,21 @@ about The Cartridge Header.
     // z += "\n";
 
     return z;
+  }
+
+  private class Pair implements Comparable {
+    public int address;
+    public short value;
+
+    public Pair(int address, short value) {
+      this.address = address;
+      this.value = value;
+    }
+
+    public int compareTo(Object o) {
+      Pair p2 = (Pair) o;
+      if (address != p2.address)  return p2.address - address;
+      else                        return p2.value - value;
+    }
   }
 }

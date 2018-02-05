@@ -23,22 +23,27 @@ class CPU {
     for (int i = 0; i < cart.size(); i++) {
       mmu.set(i, cart.get(i));
     }
+    mmu.log(true);
   }
 
   // Run instruction at mmu[PC]
   public void tick() {
     short instruction = mmu.get(state.PC());
-    Util.log(Util.hex(state.PC()) + "\t" + Util.hex(instruction));
+    short nextByte = mmu.get(CPUMath.inc16(state.PC()));
+    short nextNextByte = mmu.get(CPUMath.inc16(CPUMath.inc16(state.PC())));
+
+    Util.debug(Util.hex(state.PC()) + "\t" + Util.hex(instruction) + "\t" + Util.mnemonic(instruction, nextByte, nextNextByte));
+
     cycle(instruction);
   }
 
   public void cycle(short instruction) {
-    decode(instruction);
     state.incPC();
+    decode(instruction);
   }
 
   public void dump() {
-    Util.log("");
+    Util.log();
     Util.log("AF\t" + Util.hex(state.getReg16(CPUState.R.A, CPUState.R.F)));
     Util.log("BC\t" + Util.hex(state.getReg16(CPUState.R.B, CPUState.R.C)));
     Util.log("DE\t" + Util.hex(state.getReg16(CPUState.R.D, CPUState.R.E)));
@@ -49,7 +54,7 @@ class CPU {
     Util.log("N\t" + (state.getFlag(CPUState.Flag.N) ? 1 : 0));
     Util.log("H\t" + (state.getFlag(CPUState.Flag.H) ? 1 : 0));
     Util.log("C\t" + (state.getFlag(CPUState.Flag.C) ? 1 : 0));
-    Util.log("");
+    Util.log();
   }
 
   public short checksum() {
@@ -119,7 +124,7 @@ class CPU {
       case 0x0E:  // LD C,d8
         ins.ld8(CPUState.R.C);
         break;
-      case 0x0F:  //RRCA
+      case 0x0F:  // RRCA
         ins.rrca();
         break;
       case 0x10:  // STOP 0
@@ -314,53 +319,53 @@ class CPU {
       case 0x4F:  // LD C,A
         ins.ld8(CPUState.R.C, CPUState.R.A);
         break;
-      case 0x50:  // LD B,B
-        ins.ld8(CPUState.R.B, CPUState.R.B);
+      case 0x50:  // LD D,B
+        ins.ld8(CPUState.R.D, CPUState.R.B);
         break;
-      case 0x51:  // LD B,C
-        ins.ld8(CPUState.R.B, CPUState.R.C);
+      case 0x51:  // LD D,C
+        ins.ld8(CPUState.R.D, CPUState.R.C);
         break;
-      case 0x52:  // LD B,D
-        ins.ld8(CPUState.R.B, CPUState.R.D);
+      case 0x52:  // LD D,D
+        ins.ld8(CPUState.R.D, CPUState.R.D);
         break;
-      case 0x53:  // LD B,E
-        ins.ld8(CPUState.R.B, CPUState.R.E);
+      case 0x53:  // LD D,E
+        ins.ld8(CPUState.R.D, CPUState.R.E);
         break;
-      case 0x54:  // LD B,H
-        ins.ld8(CPUState.R.B, CPUState.R.H);
+      case 0x54:  // LD D,H
+        ins.ld8(CPUState.R.D, CPUState.R.H);
         break;
-      case 0x55:  // LD B,L
-        ins.ld8(CPUState.R.B, CPUState.R.L);
+      case 0x55:  // LD D,L
+        ins.ld8(CPUState.R.D, CPUState.R.L);
         break;
-      case 0x56:  // LD B,[HL]
-        ins.ld8_load(CPUState.R.B, CPUState.R.H, CPUState.R.L);
+      case 0x56:  // LD D,[HL]
+        ins.ld8_load(CPUState.R.D, CPUState.R.H, CPUState.R.L);
         break;
-      case 0x57:  // LD B,A
-        ins.ld8(CPUState.R.B, CPUState.R.A);
+      case 0x57:  // LD D,A
+        ins.ld8(CPUState.R.D, CPUState.R.A);
         break;
-      case 0x58:  // LD C,B
-        ins.ld8(CPUState.R.C, CPUState.R.B);
+      case 0x58:  // LD E,B
+        ins.ld8(CPUState.R.E, CPUState.R.B);
         break;
-      case 0x59:  // LD C,C
-        ins.ld8(CPUState.R.C, CPUState.R.C);
+      case 0x59:  // LD E,C
+        ins.ld8(CPUState.R.E, CPUState.R.C);
         break;
-      case 0x5A:  // LD C,D
-        ins.ld8(CPUState.R.C, CPUState.R.D);
+      case 0x5A:  // LD E,D
+        ins.ld8(CPUState.R.E, CPUState.R.D);
         break;
-      case 0x5B:  // LD C,E
-        ins.ld8(CPUState.R.C, CPUState.R.E);
+      case 0x5B:  // LD E,E
+        ins.ld8(CPUState.R.E, CPUState.R.E);
         break;
-      case 0x5C:  // LD C,H
-        ins.ld8(CPUState.R.C, CPUState.R.H);
+      case 0x5C:  // LD E,H
+        ins.ld8(CPUState.R.E, CPUState.R.H);
         break;
-      case 0x5D:  // LD C,L
-        ins.ld8(CPUState.R.C, CPUState.R.L);
+      case 0x5D:  // LD E,L
+        ins.ld8(CPUState.R.E, CPUState.R.L);
         break;
-      case 0x5E:  // LD C,[HL]
-        ins.ld8_load(CPUState.R.C, CPUState.R.H, CPUState.R.L);
+      case 0x5E:  // LD E,[HL]
+        ins.ld8_load(CPUState.R.E, CPUState.R.H, CPUState.R.L);
         break;
-      case 0x5F:  // LD C,A
-        ins.ld8(CPUState.R.C, CPUState.R.A);
+      case 0x5F:  // LD E,A
+        ins.ld8(CPUState.R.E, CPUState.R.A);
         break;
       case 0x60:  // LD H,B
         ins.ld8(CPUState.R.H, CPUState.R.B);
@@ -854,8 +859,12 @@ class CPU {
 
 
   public static void main(String args[]) {
-    CPU cpu = new CPU(new CPUState(), new MMU(), new Cart("../roms/bios.gb"));
+    CPUState state = new CPUState();
+    Cart cart = new Cart("roms/bios.gb");
+    PPU ppu = new PPU();
+    MMU mmu = new MMU(ppu);
+    ppu.setMMU(mmu);
 
-    Util.log("SP == " + cpu.state.SP());
+    CPU cpu = new CPU(state, mmu, cart);
   }
 }
