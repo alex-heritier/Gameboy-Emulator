@@ -4,12 +4,14 @@ import java.util.HashMap;
 class Instructions {
   private CPUState state;
   private MMU mmu;
+  private ClockCounter clockCounter;
   private CBInstructions cb;
 
-  public Instructions(CPUState state, MMU mmu) {
+  public Instructions(CPUState state, MMU mmu, ClockCounter clockCounter) {
     this.state = state;
     this.mmu = mmu;
-    this.cb = new CBInstructions(state, mmu);
+    this.clockCounter = clockCounter;
+    this.cb = new CBInstructions(state, mmu, clockCounter);
   }
   private Instructions() {
   }
@@ -21,33 +23,39 @@ class Instructions {
  /* - Misc/control instructions */
  //     - nop
  public void nop() {
-
+   clockCounter.add(1);
  }
 
  //     - stop
  public void stop() {
-   // Util.debug("STOP");
+   Util.debug("STOP");
+   state.incPC(); // STOP skips the next instruction
+   clockCounter.add(1);
  }
 
  //     - halt
  public void halt() {
-   // Util.debug("HALT");
+   Util.debug("HALT");
+   clockCounter.add(1);
  }
 
  //     - DI
  public void DI() {
    state.IME(false);
+   clockCounter.add(1);
  }
 
  //     - EI
  public void EI() {
-   state.IME(true); //
+   state.IME(true);
+   clockCounter.add(1);
  }
 
  //     - prefix CB
  public void CB() {
    short instruction = readMem8(state.PC());
    state.incPC();  // skip CB instruction
+   clockCounter.add(1);
    cb.handle(instruction);
  }
  /* - END Misc/control instructions */
@@ -61,26 +69,39 @@ class Instructions {
    state.incPC();
    state.incPC();
 
+   clockCounter.add(4);
+
    jump(address);
  }
 
  //     - jp FLAG a16
  public void jp(CPUState.Flag flag) {
-   if (state.getFlag(flag))
+   if (state.getFlag(flag)) {
       jp();
+   } else {
+     state.incPC();  // skip immediate address
+     state.incPC();
+     clockCounter.add(3);
+   }
  }
 
  //     - jp [HL]
  public void jp(CPUState.R reg1, CPUState.R reg2) {
    int registerValue = word(reg1, reg2);
    int address = readMem16(registerValue);
+   clockCounter.add(1);
    jump(address);
  }
 
  //     - jpn FLAG a16
  public void jpn(CPUState.Flag flag) {
-   if (!state.getFlag(flag))
+    if (!state.getFlag(flag)) {
       jp();
+    } else {
+      state.incPC();  // skip immediate address
+      state.incPC();
+      clockCounter.add(3);
+    }
  }
 
  //     - jr a8
@@ -89,6 +110,8 @@ class Instructions {
    byte offset = (byte)readMem8(state.PC());  // cast to byte so that sign matters
    state.incPC();
    int address = add16(CPUState.R.PC_0, CPUState.R.PC_1, offset);
+
+   clockCounter.add(3);
 
    Util.debug("jr 0x" + Util.hex(offset));
    jump(address);
@@ -99,8 +122,10 @@ class Instructions {
  public void jr(CPUState.Flag flag) {
    if (state.getFlag(flag))
      jr();
-   else
+   else {
      state.incPC();  // skip address
+     clockCounter.add(2);
+   }
  }
 
  //     - jrn FLAG a8
@@ -108,27 +133,39 @@ class Instructions {
  public void jrn(CPUState.Flag flag) {
    if (!state.getFlag(flag))
      jr();
-   else
+   else {
      state.incPC();  // skip address
+     clockCounter.add(2);
+   }
  }
 
  //     - ret
  public void ret() {
    int address = pop();
    // Util.debug("RET - address: " + Util.hex(address));
+
+   clockCounter.add(4);
+
    jump(address);
  }
 
  //     - ret FLAG
  public void ret(CPUState.Flag flag) {
-   if (state.getFlag(flag))
+   if (state.getFlag(flag)) {
+     clockCounter.add(1); // more time gets added in ret()
      ret();
+   } else
+     clockCounter.add(2);
  }
 
  //     - retn FLAG
  public void retn(CPUState.Flag flag) {
-   if (!state.getFlag(flag))
+   if (!state.getFlag(flag)) {
+     clockCounter.add(1);
      ret();
+   } else {
+     clockCounter.add(2);
+   }
  }
 
  //     - reti
@@ -139,6 +176,8 @@ class Instructions {
 
  //     - rst a8
  public void rst(int address) {
+   clockCounter.add(4);
+
    push(state.PC());
    jump(address);
  }
@@ -152,19 +191,31 @@ class Instructions {
    state.incPC();
    push(state.PC());  // push address of next instruction on stack
 
+   clockCounter.add(6);
+
    jump(address);
  }
 
  //     - call FLAG a16
  public void call(CPUState.Flag flag) {
-   if (state.getFlag(flag))
+   if (state.getFlag(flag)) {
      call();
+   } else {
+     state.incPC(); // skip immediate address
+     state.incPC();
+     clockCounter.add(3);
+   }
  }
 
  //     - calln FLAG a16
  public void calln(CPUState.Flag flag) {
-   if (!state.getFlag(flag))
+   if (!state.getFlag(flag)) {
      call();
+   } else {
+     state.incPC(); // skip immediate address
+     state.incPC();
+     clockCounter.add(3);
+   }
  }
  /* - END Jumps/calls */
 
@@ -172,11 +223,15 @@ class Instructions {
  /* - 8bit load/store/move instructions */
  //     - ld A, B
  public void ld8(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(1);
+
    ld8(reg1, state.getReg(reg2));
  }
 
  //     - ld A, d8
  public void ld8(CPUState.R reg) {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -185,6 +240,8 @@ class Instructions {
 
  //     - ld A, [BC]
  public void ld8_load(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    int address = word(reg2, reg3);
    short value = readMem8(address);
    ld8(reg1, value);
@@ -192,18 +249,24 @@ class Instructions {
 
  //     - ld A, [HL-]
  public void ld8_loadd(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    ld8_load(reg1, reg2, reg3);  // ld A, [HL]
    dec(reg2, reg3);             // HL--
  }
 
  //     - ld A, [HL+]
  public void ld8_loadi(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    ld8_load(reg1, reg2, reg3);  // ld A, [HL]
    inc(reg2, reg3);             // HL++
  }
 
  //     - ld [BC], A
  public void ld8_store(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    short value = state.getReg(reg3);
    int address = word(reg1, reg2);
    writeMem8(address, value);
@@ -211,18 +274,24 @@ class Instructions {
 
  //     - ld [HL-], A
  public void ld8_stored(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    ld8_store(reg1, reg2, reg3);  // ld [HL], A
    dec(reg1, reg2);              // HL--
  }
 
  //     - ld [HL+], A
  public void ld8_storei(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    ld8_store(reg1, reg2, reg3);  // ld [HL], A
    inc(reg1, reg2);              // HL++
  }
 
  //     - ld [HL], d8
  public void ldhl_store(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(3);
+
    int address = word(reg1, reg2);
    short value = 0;
 
@@ -233,6 +302,8 @@ class Instructions {
 
  //     - ldh [a8], A
  public void ldh_store(CPUState.R reg) {
+   clockCounter.add(3);
+
    short registerValue = state.getReg(reg);
    short offset = 0;
    int base = 0xFF00;
@@ -244,6 +315,8 @@ class Instructions {
 
  //     - ldh A, [a8]
  public void ldh_load(CPUState.R reg) {
+   clockCounter.add(3);
+
    short offset = 0;
    int base = 0xFF00;
 
@@ -256,20 +329,28 @@ class Instructions {
 
  //     - ld [C], A
  public void ld8_store(CPUState.R reg1, CPUState.R reg2) {
-   short address = state.getReg(reg1);
+   clockCounter.add(2);
+
+   int base = 0xFF40;
+   short offset = state.getReg(reg1);
    short value = state.getReg(reg2);
-   writeMem8(address, value);
+   writeMem8(CPUMath.add16(base, offset), value);
  }
 
  //     - ld A, [C]
  public void ld8_load(CPUState.R reg1, CPUState.R reg2) {
-   short address = state.getReg(reg2);
-   short value = readMem8(address);
+   clockCounter.add(2);
+
+   int base = 0xFF40;
+   short offset = state.getReg(reg2);
+   short value = readMem8(CPUMath.add16(base, offset));
    ld8(CPUState.R.A, value);
  }
 
  //     - ld [a16], A
  public void ld8_store(CPUState.R reg) {
+   clockCounter.add(4);
+
    short value = state.getReg(reg);
 
    int address = readMem16(state.PC());
@@ -281,6 +362,8 @@ class Instructions {
 
  //     - ld A, [a16]
  public void ld8_load(CPUState.R reg) {
+   clockCounter.add(4);
+
    int address = readMem16(state.PC());
    state.incPC();
    state.incPC();
@@ -294,11 +377,15 @@ class Instructions {
  /* - 16bit load/store/move instructions */
  //     - ld SP, HL
  public void ld16(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3, CPUState.R reg4) {
+   clockCounter.add(2);
+
    ld16(reg1, reg2, state.getReg(reg3), state.getReg(reg4));
  }
 
  //     - ld BC, d16
  public void ld16(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(3);
+
    int word = 0;
 
    word = readMem16(state.PC());
@@ -309,8 +396,10 @@ class Instructions {
    ld16(reg1, reg2, bytes[0], bytes[1]);
  }
 
- //     - ld [d16], BC
+ //     - ld [d16], SP
  public void ld16_store(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(5);
+
    int address = 0;
 
    address = readMem16(state.PC());
@@ -322,6 +411,8 @@ class Instructions {
 
  //     - LD HL,[SP+r8]
  public void ld_pop() {
+   clockCounter.add(3);
+
    short offset = 0;
    offset = readMem8(state.PC());
    state.incPC();
@@ -335,12 +426,16 @@ class Instructions {
 
  //     - pop BC
  public void pop(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(3);
+
    int word = pop();
    ld16(reg1, reg2, word);
  }
 
  //     - push BC
  public void push(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(4);
+
    int value = word(reg1, reg2);
    push(value);
  }
@@ -350,6 +445,8 @@ class Instructions {
  /* - 8bit arithmetic */
  //     - inc B
  public void inc(CPUState.R reg) {
+   clockCounter.add(1);
+
    short originalValue = state.getReg(reg);
    state.setReg(reg, inc8(reg));
 
@@ -358,8 +455,10 @@ class Instructions {
    state.setFlag(CPUState.Flag.H, CPUMath.addWillHalfCarry(originalValue, (short)1));
  }
 
- //     - inc [BC]
+ //     - inc [HL]
  public void inc_mem(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(3);
+
    int address = word(reg1, reg2);
    short originalValue = readMem8(address);
    CPUMath.Result r = CPUMath.inc8(originalValue);
@@ -369,6 +468,8 @@ class Instructions {
 
  //     - dec B
  public void dec(CPUState.R reg) {
+   clockCounter.add(1);
+
    short originalValue = state.getReg(reg);
    CPUMath.Result result = dec8(reg);
 
@@ -381,6 +482,8 @@ class Instructions {
 
  //     - dec [BC]
  public void dec_mem(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(3);
+
    int address = word(reg1, reg2);
    short originalValue = readMem8(address);
    CPUMath.Result r = CPUMath.dec8(originalValue);
@@ -391,6 +494,7 @@ class Instructions {
  //     - daa
  public void daa() {
    // Adapted from http://forums.nesdev.com/viewtopic.php?t=9088
+   clockCounter.add(1);
 
    short regA = state.getReg(CPUState.R.A);
 
@@ -432,6 +536,8 @@ class Instructions {
 
  //     - cpl
  public void cpl() {
+   clockCounter.add(1);
+
    short registerValue = state.getReg(CPUState.R.A);
    registerValue = (short)((~registerValue) & 0xFF);
 
@@ -442,6 +548,8 @@ class Instructions {
 
  //     - ccf
  public void ccf() {
+   clockCounter.add(1);
+
    state.setFlag(CPUState.Flag.N, true);
    state.setFlag(CPUState.Flag.H, true);
    state.setFlag(CPUState.Flag.C, !state.getFlag(CPUState.Flag.C));
@@ -449,11 +557,15 @@ class Instructions {
 
  //     - add A, B
  public void add(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(1);
+
    add(reg1, state.getReg(reg2));
  }
 
  //     - add A, [HL]
  public void add(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    int address = word(reg2, reg3);
    short value = readMem8(address);
 
@@ -462,6 +574,8 @@ class Instructions {
 
  //     - add A, d8
  public void add(CPUState.R reg) {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -471,6 +585,8 @@ class Instructions {
 
  //     - adc A, B
  public void adc(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(1);
+
    short value = state.getReg(reg2);
    short carry = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
    short sum = CPUMath.add8(value, carry).get8();
@@ -480,6 +596,8 @@ class Instructions {
 
  //     - adc A, [HL]
  public void adc(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3) {
+   clockCounter.add(2);
+
    int address = word(reg2, reg3);
    short value = readMem8(address);
    short carry = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
@@ -490,6 +608,8 @@ class Instructions {
 
  //     - adc A, d8
  public void adc(CPUState.R reg) {
+   clockCounter.add(2);
+
    short value = 0;
    short carry = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
 
@@ -502,11 +622,15 @@ class Instructions {
 
  //     - sub B
  public void sub(CPUState.R reg) {
+   clockCounter.add(1);
+
    sub(CPUState.R.A, state.getReg(reg));
  }
 
  //     - sub [HL]
  public void sub(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int address = word(reg1, reg2);
    short value = readMem8(address);
 
@@ -515,6 +639,8 @@ class Instructions {
 
  //     - sub d8
  public void sub() {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -524,12 +650,16 @@ class Instructions {
 
  //     - sbc A, B
  public void sbc(CPUState.R reg) {
+   clockCounter.add(1);
+
    short subtractor = add8(reg, (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0));
    sub(CPUState.R.A, subtractor);
  }
 
  //     - sbc A, [HL]
  public void sbc(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int address = word(reg1, reg2);
    short value = readMem8(address);
    short subtractor = CPUMath.add8(value, (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0)).get8();
@@ -538,6 +668,8 @@ class Instructions {
 
  //     - sbc A, d8
  public void sbc() {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -547,12 +679,16 @@ class Instructions {
 
  //     - cp B
  public void cp(CPUState.R reg) {
+   clockCounter.add(1);
+
    short value = state.getReg(reg);
    cp(value);
  }
 
  //     - cp [HL]
  public void cp(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int address = word(reg1, reg2);
    short value = readMem8(address);
    cp(value);
@@ -560,6 +696,8 @@ class Instructions {
 
  //     - cp d8
  public void cp() {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -580,12 +718,16 @@ class Instructions {
  /* - logical instructions */
  //     - and B
  public void and(CPUState.R reg) {
+   clockCounter.add(1);
+
    short value = state.getReg(reg);
    and8(value);
  }
 
  //     - and [HL]
  public void and(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int address = word(reg1, reg2);
    short value = readMem8(address);
    and8(value);
@@ -593,6 +735,8 @@ class Instructions {
 
  //     - and d8
  public void and() {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -601,12 +745,16 @@ class Instructions {
 
  //     - xor B
  public void xor(CPUState.R reg) {
+   clockCounter.add(1);
+
    short value = state.getReg(reg);
    xor8(value);
  }
 
  //     - xor [HL]
  public void xor(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int address = word(reg1, reg2);
    short value = readMem8(address);
    xor8(value);
@@ -614,6 +762,8 @@ class Instructions {
 
  //     - xor d8
  public void xor() {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -622,12 +772,16 @@ class Instructions {
 
  //     - or B
  public void or(CPUState.R reg) {
+   clockCounter.add(1);
+
    short value = state.getReg(reg);
    or8(value);
  }
 
  //     - or [HL]
  public void or(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int address = word(reg1, reg2);
    short value = readMem8(address);
    or8(value);
@@ -635,6 +789,8 @@ class Instructions {
 
  //     - or d8
  public void or() {
+   clockCounter.add(2);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
@@ -646,6 +802,8 @@ class Instructions {
  /* - 8bit rotations/shifts and bit instructions */
  //   - RLCA
  public void rlca() {
+   clockCounter.add(1);
+
    short value = state.getReg(CPUState.R.A);
    boolean msb = (value & 0x80) > 0;
 
@@ -660,20 +818,24 @@ class Instructions {
 
  //   - RLA
  public void rla() {
-     short value = state.getReg(CPUState.R.A);
-     boolean msb = (value & 0x80) > 0;
+   clockCounter.add(1);
 
-     value <<= 1; // shift left
-     value += (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);  // set bit 0 to carry
-     value &= (short)0xFF;
+   short value = state.getReg(CPUState.R.A);
+   boolean msb = (value & 0x80) > 0;
 
-     state.setReg(CPUState.R.A, value);
-     state.resetFlags();
-     state.setFlag(CPUState.Flag.C, msb);
+   value <<= 1; // shift left
+   value += (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);  // set bit 0 to carry
+   value &= (short)0xFF;
+
+   state.setReg(CPUState.R.A, value);
+   state.resetFlags();
+   state.setFlag(CPUState.Flag.C, msb);
  }
 
  //   - RRCA
  public void rrca() {
+   clockCounter.add(1);
+
    short value = state.getReg(CPUState.R.A);
    boolean lsb = (value & 0x01) > 0;
 
@@ -687,6 +849,8 @@ class Instructions {
 
  //   - RRA
  public void rra() {
+   clockCounter.add(1);
+
    short value = state.getReg(CPUState.R.A);
    boolean lsb = (value & 0x01) > 0;
 
@@ -703,6 +867,8 @@ class Instructions {
  /* - 16bit arithmetic */
  //     - inc BC
  public void inc(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int originalValue = word(reg1, reg2);
    state.setReg16(reg1, reg2, inc16(reg1, reg2));
    /* Apparently 16 bit increments don't affect flags */
@@ -710,18 +876,24 @@ class Instructions {
 
  //     - dec BC
  public void dec(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(2);
+
    int originalValue = word(reg1, reg2);
    state.setReg16(reg1, reg2, dec16(reg1, reg2));
  }
 
  //     - add HL, BC
  public void add16(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3, CPUState.R reg4) {
+   clockCounter.add(2);
+
    int result = add16(reg1, reg2, word(reg3, reg4));
    state.setReg16(reg1, reg2, result);
  }
 
  //     - add SP, r8
  public void add16(CPUState.R reg1, CPUState.R reg2) {
+   clockCounter.add(4);
+
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();

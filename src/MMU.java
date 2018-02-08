@@ -106,6 +106,7 @@ about The Cartridge Header.
     }
 
     if (logWrites) memoryAccesses.add(new Pair(address, value));
+    // Util.log("WRITING - " + Util.hex(address) + "\t" + Util.hex(value));
 
     // 0xFFFF
     if (address == 0xFFFF)
@@ -138,7 +139,13 @@ about The Cartridge Header.
   }
 
   private void handleIO(int address, short value) {
-    ppu.handle(address, value);
+    // Log Link Cable writes
+    if (address == 0xFF02 && value == 0x81) {
+      short data = get(0xFF01);
+      System.out.print((char)data);
+    }
+
+    ppu.handleIOPortWrite(address, value);
   }
 
   private void clear() {

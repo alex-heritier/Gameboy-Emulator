@@ -6,6 +6,7 @@ import java.util.StringTokenizer;
 
 class Gameboy {
   private CPUState state;
+  private ClockCounter clockCounter;
   private CPU cpu;
   private PPU ppu;
   private MMU mmu;
@@ -18,10 +19,11 @@ class Gameboy {
   public Gameboy(Cart cart) {
     this.cart = cart;
     this.state = new CPUState();
-    this.ppu = new PPU();
+    this.clockCounter = new ClockCounter();
+    this.ppu = new PPU(clockCounter);
     this.mmu = new MMU(ppu);
     this.ppu.setMMU(mmu);
-    this.cpu = new CPU(state, mmu, cart);
+    this.cpu = new CPU(state, mmu, cart, clockCounter);
 
     breakpoints = new ArrayList<Integer>();
     breakpoints.add(0x0);
@@ -32,15 +34,16 @@ class Gameboy {
 
     Util.debug = false;
 
-    // breakpoints.add(0x0216);
+    // breakpoints.add(0x29A);
 
     int counter = 0;
     while (true) {
       int pc = state.PC();
       if (breakpoints.contains(pc)) debug_break();
-      else if (step)                prompt();
+      else if (step)                {cpu.dump(); prompt();}
 
       cpu.tick();
+      ppu.tick();
       counter++;
     }
   }
@@ -72,7 +75,6 @@ class Gameboy {
 
     // happens when user hits enter without typing anything
     if (!st.hasMoreTokens()) {
-      cpu.dump();
       return false;
     }
 

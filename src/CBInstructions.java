@@ -2,6 +2,7 @@
 class CBInstructions {
   private CPUState state;
   private MMU mmu;
+  private ClockCounter clockCounter;
 
   private CPUState.R bitHelpers[] = {
     CPUState.R.B,
@@ -14,15 +15,18 @@ class CBInstructions {
     CPUState.R.A,
   };
 
-  public CBInstructions(CPUState state, MMU mmu) {
+  public CBInstructions(CPUState state, MMU mmu, ClockCounter clockCounter) {
     this.state = state;
     this.mmu = mmu;
+    this.clockCounter = clockCounter;
   }
   private CBInstructions() {
   }
 
   public void handle(short instruction) {
     int bit3 = CPUMath.getBit(instruction, 3);
+
+    clockCounter.add(2);
 
     // 0x00 - 0x0F
     if (instruction >= 0 && instruction < 0x10) { // RLC / RRC
@@ -132,6 +136,8 @@ class CBInstructions {
   }
 
   private void _rl(int address, short value) {
+    clockCounter.add(2);
+
     short shifted = _rl(value);
     writeMem8(address, shifted);
   }
@@ -172,6 +178,8 @@ class CBInstructions {
   }
 
   private void _rrc(int address, short value) {
+    clockCounter.add(2);
+
     short shifted = _rrc(value);
     writeMem8(address, shifted);
   }
@@ -211,6 +219,8 @@ class CBInstructions {
   }
 
   private void _rr(int address, short value) {
+    clockCounter.add(2);
+
     short shifted = _rr(value);
     writeMem8(address, shifted);
 
@@ -252,6 +262,8 @@ class CBInstructions {
   }
 
   private void _sla(int address, short value) {
+    clockCounter.add(2);
+
     short shifted = _sla(value);
     writeMem8(address, shifted);
   }
@@ -291,6 +303,8 @@ class CBInstructions {
   }
 
   private void _sra(int address, short value) {
+    clockCounter.add(2);
+
     short shifted = _sra(value);
     writeMem8(address, shifted);
   }
@@ -331,6 +345,8 @@ class CBInstructions {
   }
 
   private void _swap(int address, short value) {
+    clockCounter.add(2);
+
     short newValue = _swap(value);
     writeMem8(address, newValue);
   }
@@ -369,6 +385,8 @@ class CBInstructions {
   }
 
   private void _srl(int address, short value) {
+    clockCounter.add(2);
+
     state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
 
     short shifted = (short)((value >> 1) & 0xFF);
@@ -414,6 +432,8 @@ class CBInstructions {
     bit(index, registerValue);
   }
   private void bit(int index, short value) {
+    clockCounter.add(2);
+
     int bit = CPUMath.getBit(value, index);
 
     state.setFlag(CPUState.Flag.Z, bit == 0);
@@ -441,6 +461,8 @@ class CBInstructions {
   }
 
   private void res_mem(int index, short value, int address) {
+    clockCounter.add(2);
+
     short newValue = CPUMath.resetBit(value, index);
     writeMem8(address, newValue);
   }
@@ -471,6 +493,8 @@ class CBInstructions {
   }
 
   private void set_mem(int index, short value, int address) {
+    clockCounter.add(2);
+
     short newValue = CPUMath.setBit(value, index);
     writeMem8(address, newValue);
   }

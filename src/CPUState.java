@@ -45,10 +45,10 @@ class CPUState {
     // HL = 000D
     // SP = FFFE
     // Z flag = 1
-    setReg16(R.A, R.F, 0x1180); // sets zero flag too
-    setReg16(R.B, R.C, 0x0000);
-    setReg16(R.D, R.E, 0xFF56);
-    setReg16(R.H, R.L, 0x000D);
+    setReg16(R.A, R.F, 0x01B0); // sets zero flag too
+    setReg16(R.B, R.C, 0x0013);
+    setReg16(R.D, R.E, 0x00D8);
+    setReg16(R.H, R.L, 0x014D);
     setReg16(R.SP_0, R.SP_1, 0xFFFE);
   }
 

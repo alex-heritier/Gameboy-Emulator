@@ -5,6 +5,7 @@ class Tester {
     Util.log("Gameboy Emulator");
     Util.log("################");
 
+    String tetris = "roms/tetris.gb";
     String bios = "roms/bios.gb";
     String test = "dev/test.gb";
     String blargg_1 = "roms/tests/cpu_instrs/individual/01-special.gb";
@@ -19,10 +20,7 @@ class Tester {
     String blargg_10 = "roms/tests/cpu_instrs/individual/10-bit ops.gb";
     String blargg_11 = "roms/tests/cpu_instrs/individual/11-op a,(hl).gb";
 
-    Cart cart = new Cart(blargg_2);
-    // Util.log("GB Bios: ");
-    // Util.log(cart.toString());
-
+    Cart cart = new Cart(bios);
     Gameboy gb = new Gameboy(cart);
     gb.run();
   }

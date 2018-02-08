@@ -3,17 +3,19 @@ import java.util.HashMap;
 
 class CPU {
 
+  private CPUState state;
   private MMU mmu;
   private Cart cart;
-  private CPUState state;
+  private ClockCounter clockCounter;
   private Instructions ins;
 
 
-  public CPU(CPUState state, MMU mmu, Cart cart) {
+  public CPU(CPUState state, MMU mmu, Cart cart, ClockCounter clockCounter) {
+    this.state = state;
     this.mmu = mmu;
     this.cart = cart;
-    this.state = state;
-    this.ins = new Instructions(state, mmu);
+    this.clockCounter = clockCounter;
+    this.ins = new Instructions(state, mmu, clockCounter);
 
     loadROM();
   }
@@ -31,14 +33,15 @@ class CPU {
     short instruction = mmu.get(state.PC());
     short nextByte = mmu.get(CPUMath.inc16(state.PC()));
     short nextNextByte = mmu.get(CPUMath.inc16(CPUMath.inc16(state.PC())));
-
     Util.debug(Util.hex(state.PC()) + "\t" + Util.hex(instruction) + "\t" + Util.mnemonic(instruction, nextByte, nextNextByte));
 
-    cycle(instruction);
+    tick(instruction);
   }
 
-  public void cycle(short instruction) {
+  public void tick(short instruction) {
     state.incPC();
+
+    handleInterrupts();
     decode(instruction);
   }
 
@@ -72,6 +75,34 @@ class CPU {
     value = CPUMath.add8(value, state.getReg(CPUState.R.SP_0)).get8();
     value = CPUMath.add8(value, state.getReg(CPUState.R.SP_1)).get8();
     return value;
+  }
+
+  private void handleInterrupts() {
+    int interruptFlagsAddress = 0xFF0F;
+    short interruptFlags = mmu.get(interruptFlagsAddress);
+
+    // Util.log("INTERRUPT FLAGS - " + Util.hex(interruptFlags));
+
+    if (!state.IME() || interruptFlags == 0) return;
+
+    for (int i = 0; i <= 4; i++) {
+      int bit = CPUMath.getBit(interruptFlags, i);
+      int ierFlag = CPUMath.getBit(mmu.get(0xFFFF), i);
+
+      if (bit > 0 && ierFlag > 0) {
+
+        Util.log("INTERRUPT - " + i);
+
+        // turn off interrupt flag
+        interruptFlags = CPUMath.resetBit(interruptFlags, i);
+        mmu.set(interruptFlagsAddress, interruptFlags);
+
+        state.IME(false); // prevents more interrupts from occuring
+        ins.push(CPUState.R.PC_0, CPUState.R.PC_1);
+        state.setPC(0x40 + 8 * i);  // jump to interrupt handler
+        break;
+      }
+    }
   }
 
   /*
@@ -861,10 +892,11 @@ class CPU {
   public static void main(String args[]) {
     CPUState state = new CPUState();
     Cart cart = new Cart("roms/bios.gb");
-    PPU ppu = new PPU();
+    ClockCounter cc = new ClockCounter();
+    PPU ppu = new PPU(cc);
     MMU mmu = new MMU(ppu);
     ppu.setMMU(mmu);
 
-    CPU cpu = new CPU(state, mmu, cart);
+    CPU cpu = new CPU(state, mmu, cart, cc);
   }
 }

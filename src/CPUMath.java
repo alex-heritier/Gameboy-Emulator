@@ -51,7 +51,7 @@ class CPUMath {
     if (n < 0 || n > 7) return 0;
 
     short bitmask = (short)(1 << n);
-    return value & bitmask;
+    return (value & bitmask) >> n;
   }
 
   public static short setBit(short value, int n) {

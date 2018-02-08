@@ -275,7 +275,7 @@ class Util {
       case 0xDD: z = "N/A"; break;
       case 0xDE: z = "sbc A, " + hex(byte1); break;
       case 0xDF: z = "rst 0x18"; break;
-      case 0xE0: z = "ldh " + hex(byte1) + ", A"; break;
+      case 0xE0: z = "ldh [0xFF00+" + hex(byte1) + "], A"; break;
       case 0xE1: z = "pop HL"; break;
       case 0xE2: z = "ld (C), A"; break;
       case 0xE3: z = "N/A"; break;
@@ -291,7 +291,7 @@ class Util {
       case 0xED: z = "N/A"; break;
       case 0xEE: z = "xor " + hex(byte1); break;
       case 0xEF: z = "rst 0x28"; break;
-      case 0xF0: z = "ldh A, " + hex(byte1); break;
+      case 0xF0: z = "ldh A, [0xFF00+" + hex(byte1) + "]"; break;
       case 0xF1: z = "pop AF"; break;
       case 0xF2: z = "ld A, (C)"; break;
       case 0xF3: z = "di"; break;
@@ -313,6 +313,11 @@ class Util {
   }
 
   private static String cb_mnemonic(short instruction) {
-    return hex(instruction);
+    String z = "";
+    switch (instruction) {
+      case 0x11: z = "rl C"; break;
+      default:   z = hex(instruction);
+    }
+    return z;
   }
 }
