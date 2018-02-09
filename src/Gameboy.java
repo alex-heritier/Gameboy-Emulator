@@ -32,9 +32,63 @@ class Gameboy {
 
   public void run() {
 
-    Util.debug = false;
+    // Util.debug = false;
 
-    // breakpoints.add(0x29A);
+    // breakpoints.add(0xC01C);
+    // breakpoints.add(0xC809);
+    // breakpoints.add(0xC7C1);  // 2 times
+    // breakpoints.add(0xC252);  // GOAL
+    // breakpoints.add(0xC4DD);
+
+    // 8 times, 0xff80 desynced after 3 loops
+    // breakpoints.add(0xC2B1);
+    // breakpoints.add(0xC4DD);
+
+    // desynced at 4 times
+    // breakpoints.add(0xC670);
+    // breakpoints.add(0xC61D);
+    // breakpoints.add(0xC2CC);
+
+
+    // desynced after 8 runs
+    // desyncs in CALL C61E
+    // set DEF8, breaks after 2 times
+    // desyncs AT DEF8 (ld HL, SP+s8)
+
+
+    // breakpoints.add(0xC615);  // CALL C61E
+
+    // RAM d804-d805 desync after 2nd loop
+    // breakpoints.add(0xC501);
+
+    // desync after 3rd loop
+    breakpoints.add(0xC61A);
+
+
+
+    // breakpoints.add(0xC4E0); BASELINE
+
+
+
+    // breakpoints.add(0xC648);
+
+
+
+
+    // breakpoints.add(0xC48F); // breaks in here
+
+
+
+
+
+    // test stuff
+    // {
+    //   int base = 0xFF00;
+    //   byte offset = (byte)0xFF;
+    //   Util.log("base + offset = " + Util.hex(base + offset));
+    //   System.exit(0);
+    // }
+
 
     int counter = 0;
     while (true) {
@@ -42,12 +96,21 @@ class Gameboy {
       if (breakpoints.contains(pc)) debug_break();
       else if (step)                {cpu.dump(); prompt();}
 
-      cpu.tick();
-      ppu.tick();
+      tick();
       counter++;
     }
   }
 
+  private void tick() {
+    cpu.tick();
+    ppu.tick();
+  }
+
+
+
+  /*
+   *  Debugger methods
+   */
   private void debug_break() {
     Util.log("##########################");
     cpu.dump();

@@ -85,10 +85,9 @@ class Instructions {
    }
  }
 
- //     - jp [HL]
+ //     - jp HL
  public void jp(CPUState.R reg1, CPUState.R reg2) {
-   int registerValue = word(reg1, reg2);
-   int address = readMem16(registerValue);
+   int address = word(reg1, reg2);
    clockCounter.add(1);
    jump(address);
  }
@@ -107,11 +106,12 @@ class Instructions {
  //     - jr a8
  // unconditional relative jump
  public void jr() {
+   clockCounter.add(3);
+
    byte offset = (byte)readMem8(state.PC());  // cast to byte so that sign matters
    state.incPC();
    int address = add16(CPUState.R.PC_0, CPUState.R.PC_1, offset);
 
-   clockCounter.add(3);
 
    Util.debug("jr 0x" + Util.hex(offset));
    jump(address);
@@ -409,19 +409,34 @@ class Instructions {
    writeMem16(address, word(reg1, reg2));
  }
 
- //     - LD HL,[SP+r8]
+ //     - LD HL,SP+r8 (SIGNED)
  public void ld_pop() {
    clockCounter.add(3);
+
+   // instruction SHOULD set carry and half carry flags as appropriate
+   // https://github.com/Drenn1/GameYob/issues/15
+   // http://forums.nesdev.com/viewtopic.php?p=42138
+   // Both of these set carry and half-carry based on the low byte of SP added
+   // to the UNSIGNED immediate byte. The Negative and Zero flags are always
+   // cleared. They also calculate SP + SIGNED immediate byte and put the result
+   // into SP or HL, respectively.
 
    short offset = 0;
    offset = readMem8(state.PC());
    state.incPC();
 
-   int address = add16(CPUState.R.SP_0, CPUState.R.SP_1, offset);
-   int value = readMem16(address);
-   state.incPC();
+   int address = (word(CPUState.R.SP_0, CPUState.R.SP_1) + (byte)offset) & 0xFFFF;
 
-   ld16(CPUState.R.H, CPUState.R.L, value);
+   short lowerByte = state.getReg(CPUState.R.SP_1);
+   CPUMath.Result flagTest = CPUMath.add8(lowerByte, offset);
+
+   // FLAGS
+   state.setFlag(CPUState.Flag.Z, false);
+   state.setFlag(CPUState.Flag.N, false);
+   state.setFlag(CPUState.Flag.H, flagTest.getFlag(CPUState.Flag.H));
+   state.setFlag(CPUState.Flag.C, flagTest.getFlag(CPUState.Flag.C));
+
+   ld16(CPUState.R.H, CPUState.R.L, address);
  }
 
  //     - pop BC
@@ -890,16 +905,33 @@ class Instructions {
    state.setReg16(reg1, reg2, result);
  }
 
- //     - add SP, r8
+ //     - add SP, r8 (SIGNED)
  public void add16(CPUState.R reg1, CPUState.R reg2) {
    clockCounter.add(4);
+
+   // instruction SHOULD set carry and half carry flags as appropriate
+   // https://github.com/Drenn1/GameYob/issues/15
+   // http://forums.nesdev.com/viewtopic.php?p=42138
+   // Both of these set carry and half-carry based on the low byte of SP added
+   // to the UNSIGNED immediate byte. The Negative and Zero flags are always
+   // cleared. They also calculate SP + SIGNED immediate byte and put the result
+   // into SP or HL, respectively.
 
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
 
-   int sum = add16(reg1, reg2, value);
+   int sum = (word(reg1, reg2) +  (byte)value) & 0xFFFF;
+
+   short lowerByte = state.getReg(reg2);
+   CPUMath.Result flagTest = CPUMath.add8(lowerByte, value);
+
+   // FLAGS
    state.setReg16(reg1, reg2, sum);
+   state.setFlag(CPUState.Flag.Z, false);
+   state.setFlag(CPUState.Flag.N, false);
+   state.setFlag(CPUState.Flag.H, flagTest.getFlag(CPUState.Flag.H));
+   state.setFlag(CPUState.Flag.C, flagTest.getFlag(CPUState.Flag.C));
  }
  /* - END 16bit arithmetic */
 

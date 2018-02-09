@@ -8,20 +8,16 @@ import java.awt.image.BufferedImage;
 
 class BasicScreen implements Screen {
 
-  private int width = 256;
-  private int height = 256;
-  private int viewWidth = 160;
-  private int viewHeight = 144;
   private BufferedImage buffer;
   private JFrame frame;
   private JPanel panel;
 
   public BasicScreen() {
-    this.buffer = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+    this.buffer = new BufferedImage(PPU.VIDEO_WIDTH, PPU.VIDEO_HEIGHT, BufferedImage.TYPE_INT_RGB);
     this.frame = new JFrame("Gameboy");
-    this.panel = createPanel(width, height, buffer);
+    this.panel = createPanel(PPU.VIDEO_WIDTH, PPU.VIDEO_HEIGHT, buffer);
     this.panel.setVisible(true);
-    this.panel.setPreferredSize(new Dimension(this.width, this.height));
+    this.panel.setPreferredSize(new Dimension(PPU.VIDEO_WIDTH, PPU.VIDEO_HEIGHT));
     this.frame.add(this.panel);
     this.frame.setVisible(true);
     this.frame.pack();
@@ -61,7 +57,10 @@ class BasicScreen implements Screen {
 
         g.drawImage(buffer, 0, 0, this);
         g.setColor(Color.BLACK);
-        g.drawRect((width - viewWidth) / 2, (height - viewHeight) / 2, viewWidth, viewHeight);
+        g.drawRect((w - PPU.SCREEN_WIDTH) / 2,
+          (h - PPU.SCREEN_HEIGHT) / 2,
+          PPU.SCREEN_WIDTH,
+          PPU.SCREEN_HEIGHT);
       }
     };
   }

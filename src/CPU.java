@@ -9,7 +9,6 @@ class CPU {
   private ClockCounter clockCounter;
   private Instructions ins;
 
-
   public CPU(CPUState state, MMU mmu, Cart cart, ClockCounter clockCounter) {
     this.state = state;
     this.mmu = mmu;
@@ -35,13 +34,9 @@ class CPU {
     short nextNextByte = mmu.get(CPUMath.inc16(CPUMath.inc16(state.PC())));
     Util.debug(Util.hex(state.PC()) + "\t" + Util.hex(instruction) + "\t" + Util.mnemonic(instruction, nextByte, nextNextByte));
 
-    tick(instruction);
-  }
-
-  public void tick(short instruction) {
-    state.incPC();
-
     handleInterrupts();
+    instruction = mmu.get(state.PC());  // in case there was an interrupt
+    state.incPC();
     decode(instruction);
   }
 
@@ -97,9 +92,14 @@ class CPU {
         interruptFlags = CPUMath.resetBit(interruptFlags, i);
         mmu.set(interruptFlagsAddress, interruptFlags);
 
-        state.IME(false); // prevents more interrupts from occuring
+        int interruptAddress = 0x40 + 8 * i;
+        Util.log("Interrupt address - " + Util.hex(interruptAddress));
+
         ins.push(CPUState.R.PC_0, CPUState.R.PC_1);
-        state.setPC(0x40 + 8 * i);  // jump to interrupt handler
+        state.setPC(interruptAddress);  // jump to interrupt handler
+        state.IME(false); // prevents more interrupts from occuring
+        clockCounter.add(5);  // 20 / 4
+
         break;
       }
     }
@@ -809,7 +809,7 @@ class CPU {
       case 0xE8:  // ADD SP,r8
         ins.add16(CPUState.R.SP_0, CPUState.R.SP_1);
         break;
-      case 0xE9:  // JP [HL]
+      case 0xE9:  // JP HL
         ins.jp(CPUState.R.H, CPUState.R.L);
         break;
       case 0xEA:  // LD [a16],A

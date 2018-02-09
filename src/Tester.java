@@ -20,7 +20,7 @@ class Tester {
     String blargg_10 = "roms/tests/cpu_instrs/individual/10-bit ops.gb";
     String blargg_11 = "roms/tests/cpu_instrs/individual/11-op a,(hl).gb";
 
-    Cart cart = new Cart(bios);
+    Cart cart = new Cart(blargg_9);
     Gameboy gb = new Gameboy(cart);
     gb.run();
   }

@@ -1,10 +1,15 @@
 
 class PPU {
 
-  public static final int FullLineClockCount = (456 / 4);
-  public static final int HBlankClockCount = (202 / 4);
-  public static final int ReadingOAMClockCount = (82 / 4);
-  public static final int DrawingLineClockCount = (172 / 4);
+  public static final int FULL_LINE_CLOCK_COUNT = (456 / 4);
+  public static final int HBLANK_CLOCK_COUNT = (202 / 4);
+  public static final int READING_OAM_CLOCK_COUNT = (82 / 4);
+  public static final int DRAWING_LINE_CLOCK_COUNT = (172 / 4);
+
+  public static final int VIDEO_WIDTH = 256;
+  public static final int VIDEO_HEIGHT = 256;
+  public static final int SCREEN_WIDTH = 160;
+  public static final int SCREEN_HEIGHT = 144;
 
   public static final int LCDC_CONTROL = 0xFF40;
   public static final int LCDC_STATUS = 0xFF41;
@@ -42,14 +47,14 @@ class PPU {
     lastClockCount += delta;
 
     if (!isLCDEnabled()) {
-      lineCounter = lastClockCount / FullLineClockCount;  // Keep line count synced
+      lineCounter = lastClockCount / FULL_LINE_CLOCK_COUNT;  // Keep line count synced
       return;
     }
 
     // TODO implement LCD status interrupts (mode0, mode1, etc)
 
     // If lastClockCount exceeds the time it takes to draw a line
-    if (lineCounter < (lastClockCount / FullLineClockCount)) {
+    if (lineCounter < (lastClockCount / FULL_LINE_CLOCK_COUNT)) {
       lineCounter++;
 
       // Increment LY
@@ -125,19 +130,19 @@ class PPU {
     short yScroll = mmu.get(SCY);
     short xScroll = mmu.get(SCX);
 
-    Util.log("X SCROLL - " + xScroll);
+    // Util.log("X SCROLL - " + xScroll);
     // Util.log("Y SCROLL - " + yScroll);
 
     // Draw 256 horizontal lines
-    for (int line = 0; line < 256; line++) {
-      int yPos = (line + yScroll) & 0xFF;
+    for (int line = 0; line < VIDEO_HEIGHT; line++) {
+      int yPos = (line + yScroll - (VIDEO_HEIGHT - SCREEN_HEIGHT) / 2) & 0xFF;
       int tileRow = (yPos / 8) * 32;  // bgMap tile row
 
       // Util.log("TILE ROW - " + Util.hex(tileRow));
 
       // Draw a horizontal line of pixels
-      for (int pixel = 0; pixel < 256; pixel++) {
-        int xPos = (pixel + xScroll) & 0xFF;
+      for (int pixel = 0; pixel < VIDEO_WIDTH; pixel++) {
+        int xPos = (pixel + xScroll - (VIDEO_WIDTH - SCREEN_WIDTH) / 2) & 0xFF;
         int tileCol = xPos / 8;  // bgMap tile column
         int tileIndexAddress = bgMap + tileRow + tileCol;  // tile index in the tile data
         int tileIndex = mmu.get(tileIndexAddress);
@@ -157,6 +162,7 @@ class PPU {
           // Util.log("COLOR CODE - " + Util.hex(colorCode));
           // Util.log("COLOR - " + Util.hex(color));
         }
+
 
 
         if (tileIndex != 0) {

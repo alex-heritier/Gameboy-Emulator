@@ -6,3 +6,5 @@
 ### Instructions
 ..* http://www.devrs.com/gb/files/GBCPU_Instr.html
 ..* http://www.pastraiser.com/cpu/gameboy/gameboy_opcodes.html
+### Clock Timing
+..* https://github.com/AntonioND/giibiiadvance/blob/master/docs/TCAGBD.pdf

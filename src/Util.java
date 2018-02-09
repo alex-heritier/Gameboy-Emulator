@@ -284,7 +284,7 @@ class Util {
       case 0xE6: z = "and " + hex(byte1); break;
       case 0xE7: z = "rst 0x20"; break;
       case 0xE8: z = "add SP, " + hex(byte1); break;
-      case 0xE9: z = "jp [HL]"; break;
+      case 0xE9: z = "jp HL"; break;
       case 0xEA: z = "ld [HL], A"; break;
       case 0xEB: z = "N/A"; break;
       case 0xEC: z = "N/A"; break;
