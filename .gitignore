@@ -1,5 +1,6 @@
 *.class
 roms/
 dev/rgb*
+bgb/
 *.gb
 *.o
