@@ -10,6 +10,11 @@ class PPU {
   public static final int VIDEO_HEIGHT = 256;
   public static final int SCREEN_WIDTH = 160;
   public static final int SCREEN_HEIGHT = 144;
+  public static final int SCALE = 2;
+  public static final int SCALED_VIDEO_WIDTH = VIDEO_WIDTH * SCALE;
+  public static final int SCALED_VIDEO_HEIGHT = VIDEO_WIDTH * SCALE;
+  public static final int SCALED_SCREEN_WIDTH = SCREEN_WIDTH * SCALE;
+  public static final int SCALED_SCREEN_HEIGHT = SCREEN_HEIGHT * SCALE;
 
   public static final int LCDC_CONTROL = 0xFF40;
   public static final int LCDC_STATUS = 0xFF41;
@@ -174,9 +179,12 @@ class PPU {
           // Util.log("TILE BASE ADDRESS - " + Util.hex(tile));
         }
 
-
-
-        screen.setPixel(pixel, line, color);
+        // Upscale the pixels according to scale factor
+        for (int i = 0 ; i < SCALE; i++) {
+          for (int j = 0; j < SCALE; j++) {
+            screen.setPixel(SCALE * pixel + i, SCALE * line + j, color);
+          }
+        }
 
         // Util.log("TILE - " + Util.hex(tile));
       }

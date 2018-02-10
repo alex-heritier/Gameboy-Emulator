@@ -28,34 +28,39 @@ class Instructions {
 
  //     - stop
  public void stop() {
+   clockCounter.add(1);
+
    Util.debug("STOP");
    state.incPC(); // STOP skips the next instruction
-   clockCounter.add(1);
  }
 
  //     - halt
  public void halt() {
-   Util.debug("HALT");
    clockCounter.add(1);
+
+   Util.debug("HALT");
  }
 
  //     - DI
  public void DI() {
-   state.IME(false);
    clockCounter.add(1);
+
+   state.IME(false);
  }
 
  //     - EI
  public void EI() {
-   state.IME(true);
    clockCounter.add(1);
+
+   state.IME(true);
  }
 
  //     - prefix CB
  public void CB() {
+   clockCounter.add(1);
+
    short instruction = readMem8(state.PC());
    state.incPC();  // skip CB instruction
-   clockCounter.add(1);
    cb.handle(instruction);
  }
  /* - END Misc/control instructions */
@@ -64,12 +69,12 @@ class Instructions {
  /* - Jumps/calls */
  //     - jp a16
  public void jp() {
+   clockCounter.add(4);
+
    int address = 0;
    address = readMem16(state.PC());
    state.incPC();
    state.incPC();
-
-   clockCounter.add(4);
 
    jump(address);
  }
@@ -79,16 +84,18 @@ class Instructions {
    if (state.getFlag(flag)) {
       jp();
    } else {
+     clockCounter.add(3);
+
      state.incPC();  // skip immediate address
      state.incPC();
-     clockCounter.add(3);
    }
  }
 
  //     - jp HL
  public void jp(CPUState.R reg1, CPUState.R reg2) {
-   int address = word(reg1, reg2);
    clockCounter.add(1);
+
+   int address = word(reg1, reg2);
    jump(address);
  }
 
@@ -97,9 +104,10 @@ class Instructions {
     if (!state.getFlag(flag)) {
       jp();
     } else {
+      clockCounter.add(3);
+
       state.incPC();  // skip immediate address
       state.incPC();
-      clockCounter.add(3);
     }
  }
 
@@ -112,7 +120,6 @@ class Instructions {
    state.incPC();
    int address = add16(CPUState.R.PC_0, CPUState.R.PC_1, offset);
 
-
    Util.debug("jr 0x" + Util.hex(offset));
    jump(address);
  }
@@ -123,8 +130,9 @@ class Instructions {
    if (state.getFlag(flag))
      jr();
    else {
-     state.incPC();  // skip address
      clockCounter.add(2);
+
+     state.incPC();  // skip address
    }
  }
 
@@ -134,18 +142,18 @@ class Instructions {
    if (!state.getFlag(flag))
      jr();
    else {
-     state.incPC();  // skip address
      clockCounter.add(2);
+
+     state.incPC();  // skip address
    }
  }
 
  //     - ret
  public void ret() {
-   int address = pop();
-   // Util.debug("RET - address: " + Util.hex(address));
-
    clockCounter.add(4);
 
+   int address = pop();
+   // Util.debug("RET - address: " + Util.hex(address));
    jump(address);
  }
 
@@ -154,8 +162,9 @@ class Instructions {
    if (state.getFlag(flag)) {
      clockCounter.add(1); // more time gets added in ret()
      ret();
-   } else
+   } else {
      clockCounter.add(2);
+   }
  }
 
  //     - retn FLAG
@@ -170,7 +179,7 @@ class Instructions {
 
  //     - reti
  public void reti() {
-   ret();
+   ret(); // adds clock time
    EI();  // enable interrupts
  }
 
@@ -184,14 +193,14 @@ class Instructions {
 
  //     - call a16
  public void call() {
+   clockCounter.add(6);
+
    int address = 0;
 
    address = readMem16(state.PC());
    state.incPC();
    state.incPC();
    push(state.PC());  // push address of next instruction on stack
-
-   clockCounter.add(6);
 
    jump(address);
  }
@@ -201,9 +210,10 @@ class Instructions {
    if (state.getFlag(flag)) {
      call();
    } else {
+     clockCounter.add(3);
+
      state.incPC(); // skip immediate address
      state.incPC();
-     clockCounter.add(3);
    }
  }
 
@@ -212,9 +222,10 @@ class Instructions {
    if (!state.getFlag(flag)) {
      call();
    } else {
+     clockCounter.add(3);
+
      state.incPC(); // skip immediate address
      state.incPC();
-     clockCounter.add(3);
    }
  }
  /* - END Jumps/calls */
@@ -331,7 +342,7 @@ class Instructions {
  public void ld8_store(CPUState.R reg1, CPUState.R reg2) {
    clockCounter.add(2);
 
-   int base = 0xFF40;
+   int base = 0xFF00;
    short offset = state.getReg(reg1);
    short value = state.getReg(reg2);
    writeMem8(CPUMath.add16(base, offset), value);
@@ -341,7 +352,7 @@ class Instructions {
  public void ld8_load(CPUState.R reg1, CPUState.R reg2) {
    clockCounter.add(2);
 
-   int base = 0xFF40;
+   int base = 0xFF00;
    short offset = state.getReg(reg2);
    short value = readMem8(CPUMath.add16(base, offset));
    ld8(CPUState.R.A, value);
@@ -444,6 +455,7 @@ class Instructions {
    clockCounter.add(3);
 
    int word = pop();
+
    ld16(reg1, reg2, word);
  }
 
@@ -463,11 +475,12 @@ class Instructions {
    clockCounter.add(1);
 
    short originalValue = state.getReg(reg);
-   state.setReg(reg, inc8(reg));
+   CPUMath.Result result = CPUMath.inc8(originalValue);
 
-   state.setFlag(CPUState.Flag.Z, state.getReg(reg) == 0);
+   state.setReg(reg, result.get8());
+   state.setFlag(CPUState.Flag.Z, result.get8() == 0);
    state.setFlag(CPUState.Flag.N, false);
-   state.setFlag(CPUState.Flag.H, CPUMath.addWillHalfCarry(originalValue, (short)1));
+   state.setFlag(CPUState.Flag.H, result.getFlag(CPUState.Flag.H));
  }
 
  //     - inc [HL]
@@ -476,20 +489,22 @@ class Instructions {
 
    int address = word(reg1, reg2);
    short originalValue = readMem8(address);
-   CPUMath.Result r = CPUMath.inc8(originalValue);
+   CPUMath.Result result = CPUMath.inc8(originalValue);
 
-   writeMem8(address, r.get8());
+   writeMem8(address, result.get8());
+   state.setFlag(CPUState.Flag.Z, result.get8() == 0);
+   state.setFlag(CPUState.Flag.N, false);
+   state.setFlag(CPUState.Flag.H, result.getFlag(CPUState.Flag.H));
  }
 
  //     - dec B
  public void dec(CPUState.R reg) {
    clockCounter.add(1);
 
-   short originalValue = state.getReg(reg);
+   short regValue = state.getReg(reg);
    CPUMath.Result result = dec8(reg);
 
    state.setReg(reg, result.get8());
-
    state.setFlag(CPUState.Flag.Z, result.get8() == 0);
    state.setFlag(CPUState.Flag.N, true);
    state.setFlag(CPUState.Flag.H, result.getFlag(CPUState.Flag.H));
@@ -501,9 +516,12 @@ class Instructions {
 
    int address = word(reg1, reg2);
    short originalValue = readMem8(address);
-   CPUMath.Result r = CPUMath.dec8(originalValue);
+   CPUMath.Result result = CPUMath.dec8(originalValue);
 
-   writeMem8(address, r.get8());
+   writeMem8(address, result.get8());
+   state.setFlag(CPUState.Flag.Z, result.get8() == 0);
+   state.setFlag(CPUState.Flag.N, true);
+   state.setFlag(CPUState.Flag.H, result.getFlag(CPUState.Flag.H));
  }
 
  //     - daa
@@ -511,41 +529,38 @@ class Instructions {
    // Adapted from http://forums.nesdev.com/viewtopic.php?t=9088
    clockCounter.add(1);
 
-   short regA = state.getReg(CPUState.R.A);
+   int regA = state.getReg(CPUState.R.A);
 
-   if (!state.getFlag(CPUState.Flag.N)) {
-       if (state.getFlag(CPUState.Flag.H) || (regA & 0xF) > 0x09)
-           regA = CPUMath.add8(regA, (short)0x06).get8();
+   final boolean flagN = state.getFlag(CPUState.Flag.N);
+   final boolean flagH = state.getFlag(CPUState.Flag.H);
+   final boolean flagC = state.getFlag(CPUState.Flag.C);
 
-       if (state.getFlag(CPUState.Flag.C) || regA > 0x9F)
-           regA = CPUMath.add8(regA, (short)0x60).get8();
+   if (!flagN) {
+       if (flagH || (regA & 0x0F) > 0x09)
+           regA += 0x06;
+       if (flagC || regA > 0x9F)
+           regA += 0x60;
    }
    else {
-       if (state.getFlag(CPUState.Flag.H))
-           regA = CPUMath.sub8(regA, (short)0x06).get8();
-
-       if (state.getFlag(CPUState.Flag.C))
-           regA = CPUMath.sub8(regA, (short)0x60).get8();
+       if (flagH)
+           regA -= 0x06;
+       if (flagC)
+           regA -= 0x60;
    }
 
-   final short halfCarryFlag = 0x20;
-   final short zeroFlag = 0x80;
-   short tmp = (short)(~(CPUMath.or8(halfCarryFlag, zeroFlag).get8()));
-   state.setReg(CPUState.R.F, and8(CPUState.R.F, tmp).get8());
+   boolean carry = (regA & 0x100) == 0x100;
+   short value = (short)(regA & 0xFF);
 
-   if ((regA & 0x100) == 0x100)
-       state.setFlag(CPUState.Flag.C, true);
-
-   regA = CPUMath.and8(regA, (short)0xFF).get8();
-
-   if (regA == 0)
-       state.setFlag(CPUState.Flag.Z, true);
-
-   state.setReg(CPUState.R.A, regA);
+   state.setReg(CPUState.R.A, value);
+   state.setFlag(CPUState.Flag.Z, value == 0);
+   state.setFlag(CPUState.Flag.H, false);
+   state.setFlag(CPUState.Flag.C, carry);
  }
 
  //     - scf
  public void scf() {
+   state.setFlag(CPUState.Flag.N, false);
+   state.setFlag(CPUState.Flag.H, false);
    state.setFlag(CPUState.Flag.C, true);
  }
 
@@ -565,8 +580,8 @@ class Instructions {
  public void ccf() {
    clockCounter.add(1);
 
-   state.setFlag(CPUState.Flag.N, true);
-   state.setFlag(CPUState.Flag.H, true);
+   state.setFlag(CPUState.Flag.N, false);
+   state.setFlag(CPUState.Flag.H, false);
    state.setFlag(CPUState.Flag.C, !state.getFlag(CPUState.Flag.C));
  }
 
@@ -603,10 +618,8 @@ class Instructions {
    clockCounter.add(1);
 
    short value = state.getReg(reg2);
-   short carry = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
-   short sum = CPUMath.add8(value, carry).get8();
 
-   add(reg1, sum);
+   adc(reg1, value);
  }
 
  //     - adc A, [HL]
@@ -615,10 +628,8 @@ class Instructions {
 
    int address = word(reg2, reg3);
    short value = readMem8(address);
-   short carry = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
-   short sum = CPUMath.add8(value, carry).get8();
 
-   add(reg1, sum);
+   adc(reg1, value);
  }
 
  //     - adc A, d8
@@ -626,13 +637,33 @@ class Instructions {
    clockCounter.add(2);
 
    short value = 0;
-   short carry = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
-
    value = readMem8(state.PC());
    state.incPC();
-   short sum = CPUMath.add8(value, carry).get8();
 
-   add(reg, sum);
+   adc(reg, value);
+ }
+
+ private void adc(CPUState.R reg, short value) {
+   short carryValue = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
+   short regValue = state.getReg(reg);
+
+   // Test half carryValue
+   boolean halfCarryFlag = false;
+   short lowerSum = (short)(((regValue & 0xF) + (value & 0xF) + carryValue) & 0xF0);
+   Util.log("lowerSum - " + Util.hex(lowerSum));
+   halfCarryFlag = lowerSum > 0;
+
+   // Test carryValue
+   short sum = (short)(regValue + value + carryValue);
+   Util.log("sum - " + Util.hex(sum));
+   boolean carryFlag = (sum & 0xFF00) > 0;
+   sum &= 0xFF;
+
+   state.setReg(reg, sum);
+   state.setFlag(CPUState.Flag.Z, sum == 0);
+   state.setFlag(CPUState.Flag.N, false);
+   state.setFlag(CPUState.Flag.H, halfCarryFlag);
+   state.setFlag(CPUState.Flag.C, carryFlag);
  }
 
  //     - sub B
@@ -667,8 +698,7 @@ class Instructions {
  public void sbc(CPUState.R reg) {
    clockCounter.add(1);
 
-   short subtractor = add8(reg, (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0));
-   sub(CPUState.R.A, subtractor);
+   sbc(state.getReg(reg));
  }
 
  //     - sbc A, [HL]
@@ -677,8 +707,8 @@ class Instructions {
 
    int address = word(reg1, reg2);
    short value = readMem8(address);
-   short subtractor = CPUMath.add8(value, (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0)).get8();
-   sub(CPUState.R.A, subtractor);
+
+   sbc(value);
  }
 
  //     - sbc A, d8
@@ -688,8 +718,37 @@ class Instructions {
    short value = 0;
    value = readMem8(state.PC());
    state.incPC();
-   short subtractor = CPUMath.add8(value, (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0)).get8();
-   sub(CPUState.R.A, subtractor);
+
+   sbc(value);
+ }
+
+ private void sbc(short value) {
+   short regValue = state.getReg(CPUState.R.A);
+   short carryValue = (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);
+
+   // Test half carry
+   boolean halfFlag = false;
+   if (carryValue == 1 && (regValue & 0xF) <= (value & 0xF)
+      || carryValue == 0 && (regValue & 0xF) < (value & 0xF)) {
+
+        halfFlag = true;
+   }
+
+   // Test carry
+   boolean carryFlag = false;
+   if (carryValue == 1 && regValue <= value
+      || carryValue == 0 && regValue < value) {
+
+       carryFlag = true;
+   }
+
+   short amount = (short)((regValue - value - carryValue) & 0xFF);
+
+   state.setReg(CPUState.R.A, amount);
+   state.setFlag(CPUState.Flag.Z, amount == 0);
+   state.setFlag(CPUState.Flag.N, true);
+   state.setFlag(CPUState.Flag.H, halfFlag);
+   state.setFlag(CPUState.Flag.C, carryFlag);
  }
 
  //     - cp B
@@ -901,8 +960,24 @@ class Instructions {
  public void add16(CPUState.R reg1, CPUState.R reg2, CPUState.R reg3, CPUState.R reg4) {
    clockCounter.add(2);
 
-   int result = add16(reg1, reg2, word(reg3, reg4));
-   state.setReg16(reg1, reg2, result);
+  int result = add16(reg1, reg2, word(reg3, reg4));
+  CPUMath.Result lowerCarryTest = CPUMath.add8(state.getReg(reg2), state.getReg(reg4));
+  boolean lowerCarry = lowerCarryTest.getFlag(CPUState.Flag.C);
+
+  CPUMath.Result flagTest = CPUMath.add8(state.getReg(reg1), state.getReg(reg3));
+  short flagTestValue = flagTest.get8();
+  short carryValue = (short)(lowerCarry ? 1 : 0);  // include carry if present
+  CPUMath.Result carryFlagTest = CPUMath.add8(flagTestValue, carryValue);
+
+  boolean flagTestHalf = flagTest.getFlag(CPUState.Flag.H);
+  boolean flagTestCarry = flagTest.getFlag(CPUState.Flag.C);
+  boolean carryFlagTestHalf = carryFlagTest.getFlag(CPUState.Flag.H);
+  boolean carryFlagTestCarry = carryFlagTest.getFlag(CPUState.Flag.C);
+
+  state.setReg16(reg1, reg2, result);
+  state.setFlag(CPUState.Flag.N, false);
+  state.setFlag(CPUState.Flag.H, flagTestHalf || carryFlagTestHalf);
+  state.setFlag(CPUState.Flag.C, flagTestCarry || carryFlagTestCarry);
  }
 
  //     - add SP, r8 (SIGNED)
@@ -976,9 +1051,10 @@ class Instructions {
     CPUMath.Result result = and8(CPUState.R.A, value);
 
     state.setReg(CPUState.R.A, result.get8());
-    state.resetFlags();
     state.setFlag(CPUState.Flag.Z, result.getFlag(CPUState.Flag.Z));
+    state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, true);
+    state.setFlag(CPUState.Flag.C, false);
   }
 
 

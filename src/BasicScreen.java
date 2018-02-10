@@ -13,11 +13,11 @@ class BasicScreen implements Screen {
   private JPanel panel;
 
   public BasicScreen() {
-    this.buffer = new BufferedImage(PPU.VIDEO_WIDTH, PPU.VIDEO_HEIGHT, BufferedImage.TYPE_INT_RGB);
+    this.buffer = new BufferedImage(PPU.SCALED_VIDEO_WIDTH, PPU.SCALED_VIDEO_HEIGHT, BufferedImage.TYPE_INT_RGB);
     this.frame = new JFrame("Gameboy");
-    this.panel = createPanel(PPU.VIDEO_WIDTH, PPU.VIDEO_HEIGHT, buffer);
+    this.panel = createPanel(PPU.SCALED_VIDEO_WIDTH, PPU.SCALED_VIDEO_HEIGHT, buffer);
     this.panel.setVisible(true);
-    this.panel.setPreferredSize(new Dimension(PPU.VIDEO_WIDTH, PPU.VIDEO_HEIGHT));
+    this.panel.setPreferredSize(new Dimension(PPU.SCALED_VIDEO_WIDTH, PPU.SCALED_VIDEO_HEIGHT));
     this.frame.add(this.panel);
     this.frame.setVisible(true);
     this.frame.pack();
@@ -31,8 +31,8 @@ class BasicScreen implements Screen {
     rgb = (rgb << 8) + color;
     rgb = (rgb << 8) + color;
 
-    x &= 0xFF;
-    y &= 0xFF;
+    x %= buffer.getWidth();
+    y %= buffer.getHeight();
 
     // Util.log("X: " + x + "\tY: " + y + "\tColor: " + rgb);
 
@@ -57,10 +57,10 @@ class BasicScreen implements Screen {
 
         g.drawImage(buffer, 0, 0, this);
         g.setColor(Color.BLACK);
-        g.drawRect((w - PPU.SCREEN_WIDTH) / 2,
-          (h - PPU.SCREEN_HEIGHT) / 2,
-          PPU.SCREEN_WIDTH,
-          PPU.SCREEN_HEIGHT);
+        g.drawRect((w - PPU.SCALED_SCREEN_WIDTH) / 2,
+          (h - PPU.SCALED_SCREEN_HEIGHT) / 2,
+          PPU.SCALED_SCREEN_WIDTH,
+          PPU.SCALED_SCREEN_HEIGHT);
       }
     };
   }

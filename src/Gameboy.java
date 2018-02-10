@@ -10,6 +10,7 @@ class Gameboy {
   private CPU cpu;
   private PPU ppu;
   private MMU mmu;
+  private TimerHandler timer;
   private Cart cart;
 
   // For debugging
@@ -24,6 +25,7 @@ class Gameboy {
     this.mmu = new MMU(ppu);
     this.ppu.setMMU(mmu);
     this.cpu = new CPU(state, mmu, cart, clockCounter);
+    this.timer = new TimerHandler(mmu, clockCounter);
 
     breakpoints = new ArrayList<Integer>();
     breakpoints.add(0x0);
@@ -62,7 +64,7 @@ class Gameboy {
     // breakpoints.add(0xC501);
 
     // desync after 3rd loop
-    breakpoints.add(0xC61A);
+    // breakpoints.add(0xC61A);
 
 
 
@@ -80,7 +82,6 @@ class Gameboy {
 
 
 
-
     // test stuff
     // {
     //   int base = 0xFF00;
@@ -89,6 +90,12 @@ class Gameboy {
     //   System.exit(0);
     // }
 
+    // state.setPC(0x100);
+    breakpoints.add(0x00);
+
+    mmu.set(0xFFFF, (short)0xFF);
+    mmu.raiseInterrupt(2);
+    state.IME(true);
 
     int counter = 0;
     while (true) {
@@ -102,6 +109,7 @@ class Gameboy {
   }
 
   private void tick() {
+    timer.tick();
     cpu.tick();
     ppu.tick();
   }

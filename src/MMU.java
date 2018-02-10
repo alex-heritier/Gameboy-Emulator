@@ -138,6 +138,16 @@ about The Cartridge Header.
       romBank00[address] = value;
   }
 
+  public void raiseInterrupt(int interruptIndex) {
+    if (interruptIndex < 0 || interruptIndex > 4) {
+      Util.errn("MMU.raiseInterrupt - Bad interrupt index: " + interruptIndex);
+      return;
+    }
+
+    short interruptFlags = get(0xFF0F);
+    set(0xFF0F, CPUMath.setBit(interruptFlags, interruptIndex));
+  }
+
   private void handleIO(int address, short value) {
     // Log Link Cable writes
     if (address == 0xFF02 && value == 0x81) {

@@ -66,6 +66,8 @@ class CPUState {
       Util.errn("CPU.setReg - out of bounds: 0x" + Util.hex(value));
     }
 
+    if (reg == R.F) value &= 0xF0;  // F's unused bits can't be set
+
     registers.put(reg, value);
   }
 

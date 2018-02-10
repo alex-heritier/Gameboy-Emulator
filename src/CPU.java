@@ -98,6 +98,13 @@ class CPU {
         ins.push(CPUState.R.PC_0, CPUState.R.PC_1);
         state.setPC(interruptAddress);  // jump to interrupt handler
         state.IME(false); // prevents more interrupts from occuring
+
+        short newInstruction = mmu.get(interruptAddress);
+        short data1 = mmu.get(interruptAddress + 1);
+        short data2 = mmu.get(interruptAddress + 2);
+        Util.log("\n### New instruction - " + Util.mnemonic(newInstruction, data1, data2));
+
+        // Timing
         clockCounter.add(5);  // 20 / 4
 
         break;

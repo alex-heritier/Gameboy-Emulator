@@ -6,8 +6,10 @@ class Tester {
     Util.log("################");
 
     String tetris = "roms/tetris.gb";
+    String drMario = "roms/dr_mario.gb";
     String bios = "roms/bios.gb";
     String test = "dev/test.gb";
+    String mooneye = "roms/bits_ram_en.gb";
     String blargg_1 = "roms/tests/cpu_instrs/individual/01-special.gb";
     String blargg_2 = "roms/tests/cpu_instrs/individual/02-interrupts.gb";
     String blargg_3 = "roms/tests/cpu_instrs/individual/03-op sp,hl.gb";
@@ -20,7 +22,7 @@ class Tester {
     String blargg_10 = "roms/tests/cpu_instrs/individual/10-bit ops.gb";
     String blargg_11 = "roms/tests/cpu_instrs/individual/11-op a,(hl).gb";
 
-    Cart cart = new Cart(blargg_9);
+    Cart cart = new Cart(test);
     Gameboy gb = new Gameboy(cart);
     gb.run();
   }
