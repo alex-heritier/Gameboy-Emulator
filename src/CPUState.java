@@ -21,9 +21,12 @@ class CPUState {
 
   private HashMap<R, Short> registers;
   private boolean IME;  // Interrupt Master Enable
+  private boolean halted;
 
   public CPUState() {
     registers = new HashMap<R, Short>();
+    IME = false;
+    halted = false;
 
     registers.put(R.A, (short)0);
     registers.put(R.F, (short)0);
@@ -54,6 +57,9 @@ class CPUState {
 
   public boolean IME() { return IME; }
   public void IME(boolean value) { IME = value; }
+
+  public boolean isHalted() { return halted; }
+  public void setHalted(boolean value) { halted = value; }
 
   /*
    * Register helpers

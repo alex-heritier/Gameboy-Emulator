@@ -39,6 +39,7 @@ class Instructions {
    clockCounter.add(1);
 
    Util.debug("HALT");
+   state.setHalted(true);
  }
 
  //     - DI

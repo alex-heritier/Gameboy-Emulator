@@ -4,12 +4,11 @@
 ### 01-special.gb
 * 2D6AAFF4
 * DAA
-* 
+*
 * Failed #6
 
 ### 02-interrupt.gb
-* Timer doesn't work
-* Failed #4
+* Passed
 
 ### 03-op sp,hl.gb
 * Passed

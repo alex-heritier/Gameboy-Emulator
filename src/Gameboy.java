@@ -90,12 +90,8 @@ class Gameboy {
     //   System.exit(0);
     // }
 
-    // state.setPC(0x100);
-    breakpoints.add(0x00);
-
-    mmu.set(0xFFFF, (short)0xFF);
-    mmu.raiseInterrupt(2);
-    state.IME(true);
+    state.setPC(0x100);
+    breakpoints.add(0x100);
 
     int counter = 0;
     while (true) {
@@ -174,6 +170,9 @@ class Gameboy {
       case "run":
         step = false;
         cnt = false;
+        break;
+      case "timer":
+        timer();
         break;
       default:
         cnt = false;
@@ -254,5 +253,20 @@ class Gameboy {
       Util.log(Util.hex(i) + "\t" + Util.hex(mmu.get(i)));
     }
     Util.log();
+  }
+
+  private void timer() {
+    short div = mmu.get(TimerHandler.DIV);
+    short timerCounter = mmu.get(TimerHandler.TIMER_COUNTER);
+    short timerModulo = mmu.get(TimerHandler.TIMER_MODULO);
+    short timerControl = mmu.get(TimerHandler.TIMER_CONTROL);
+    boolean timerStatus = CPUMath.getBit(timerControl, 2) > 0;
+
+    Util.log("Timer");
+    Util.log("DIV - " + Util.hex(div));
+    Util.log("TIMA - " + Util.hex(timerCounter));
+    Util.log("TMA - " + Util.hex(timerModulo));
+    Util.log("Timer is " + (timerStatus ? "ON" : "OFF"));
+    Util.log("Timer frequency - " + TimerHandler.getTimerIncrementInterval(timerControl));
   }
 }

@@ -78,6 +78,11 @@ class MMU implements DataSource {
     }
   }
 
+  // Allows memory to be set without following normal MMU logic
+  public void forceSet(int address, short value) {
+    mem[address] = value;
+  }
+
 
   public void raiseInterrupt(int interruptIndex) {
     if (interruptIndex < 0 || interruptIndex > 4) {

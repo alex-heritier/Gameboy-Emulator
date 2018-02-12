@@ -1,17 +1,13 @@
 ; https://rednex.github.io/rgbds/rgbasm.5.html
 
-; LD tests
-
-SECTION "Interrupt",ROM0[$50]
-interrupt:
-  ld A, $FF
-  ld B, $EE
-
 SECTION "Jump",ROM0[$100]
-jp start
+  jp start
 
 SECTION "Main",ROM0[$150]
 start:
-; DAA
+  ld A, $FE
+  ld [$FF00+$06], A ; setup timer modulo
+  ld A, 5
+  ld [$FF00+$07], A ; turn on timer
 .hang
   jr .hang

@@ -4,12 +4,15 @@ class TimerHandler {
   public static final int DIV = 0xFF04; // incremented 4 times per clock
   public static final int TIMER_COUNTER = 0xFF05;
   public static final int TIMER_MODULO = 0xFF06;
-  public static final int TIMER_CONTROL = 0xFF04;
+  public static final int TIMER_CONTROL = 0xFF07;
+
+  public static final int DIV_INC_INTERVAL = 256;
 
   private MMU mmu;
   private ClockCounter clockCounter;
 
   private int lastClockCount; // The total clock count from last tick()
+  private int clocksSinceLastDiv; // Clocks since DIV was last icremented
   private int clocksSinceLastIncrement;   // Clock counts since last timer increment
 
 
@@ -23,11 +26,21 @@ class TimerHandler {
     int delta = clockCounter.count() - lastClockCount;
     lastClockCount = clockCounter.count();
 
+    clocksSinceLastDiv += delta;
+    clocksSinceLastIncrement += delta;
+
     if (!isTimerOn()) return;
 
-    // Increment DIV 4 times for each clock that has passed since last tick()
-    short currentDiv = mmu.get(DIV);
-    mmu.set(DIV, (short)((currentDiv + delta * 4) & 0xFF));
+    // Util.log("Clocks since last DIV - " + Util.hex(clocksSinceLastDiv));
+    // Util.log("Clocks since last increment - " + Util.hex(clocksSinceLastIncrement));
+
+    // Increment DIV at the rate of (4.19 megahertz) / (16 384 hertz)
+    if (DIV_INC_INTERVAL <= clocksSinceLastDiv) {
+      clocksSinceLastDiv = clocksSinceLastDiv - DIV_INC_INTERVAL;
+
+      short currentDiv = mmu.get(DIV);
+      mmu.forceSet(DIV, (short)((currentDiv + 1) & 0xFF));
+    }
 
     // Increment TIMER_COUNTER based on TIMER_CONTROL's clock rate
     short timerClockRate = getTimerIncrementInterval();
@@ -42,11 +55,12 @@ class TimerHandler {
       // Check for overflow
       if (newTimerCounter == 0) {
         short timerModulo = mmu.get(TIMER_MODULO);
-        newTimerCounter = CPUMath.add8(newTimerCounter, timerModulo).get8();
-        mmu.set(TIMER_COUNTER, newTimerCounter);
+        newTimerCounter = timerModulo;
 
         mmu.raiseInterrupt(2);
       }
+
+      mmu.set(TIMER_COUNTER, newTimerCounter);
     }
   }
 
@@ -56,8 +70,11 @@ class TimerHandler {
   }
 
   // Returns the number of clocks between increments
-  private short getTimerIncrementInterval() {
+  public short getTimerIncrementInterval() {
     short clockSelect = mmu.get(TIMER_CONTROL);
+    return getTimerIncrementInterval(clockSelect);
+  }
+  public static short getTimerIncrementInterval(short clockSelect) {
     clockSelect = (short)(clockSelect & 3);
 
     short incInterval = 0;

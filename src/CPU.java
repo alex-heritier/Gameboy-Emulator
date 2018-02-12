@@ -35,6 +35,13 @@ class CPU {
     Util.debug(Util.hex(state.PC()) + "\t" + Util.hex(instruction) + "\t" + Util.mnemonic(instruction, nextByte, nextNextByte));
 
     handleInterrupts();
+
+    if (state.isHalted()) {
+      Util.log("CPU.tick - Halted...");
+      clockCounter.add(1);
+      return;
+    }
+
     instruction = mmu.get(state.PC());  // in case there was an interrupt
     state.incPC();
     decode(instruction);
@@ -78,7 +85,14 @@ class CPU {
 
     // Util.log("INTERRUPT FLAGS - " + Util.hex(interruptFlags));
 
-    if (!state.IME() || interruptFlags == 0) return;
+    // Return if there aren't any interrupts
+    if (interruptFlags == 0) return;
+
+    // Always un-halt the CPU if there is a pending interrupt
+    state.setHalted(false);
+
+    // Return if interrupts are disabled
+    if (!state.IME()) return;
 
     for (int i = 0; i <= 4; i++) {
       int bit = CPUMath.getBit(interruptFlags, i);

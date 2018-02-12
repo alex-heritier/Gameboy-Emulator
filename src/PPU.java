@@ -18,8 +18,8 @@ class PPU {
 
   public static final int LCDC_CONTROL = 0xFF40;
   public static final int LCDC_STATUS = 0xFF41;
-  public static final int SCY = 0xFF42; // 0 - 0xFF
-  public static final int SCX = 0xFF43; // 0 - 0xFF
+  public static final int SCY = 0xFF42;
+  public static final int SCX = 0xFF43;
   public static final int LY = 0xFF44;  // 0 - 0x99
   public static final int LYC = 0xFF45; // when LY == LYC, trigger
   public static final int DMA = 0xFF46;
@@ -129,8 +129,6 @@ class PPU {
   private void updateBG() {
     int bgMap = getBGTileMap();
     int bgTiles = getBGTileData();
-    int tileOffset = 128; // Needed for tile data at 0x8800
-    int tileSize = 16;  // in bytes
     short bgPalette = mmu.get(BG_PALETTE);
     short yScroll = mmu.get(SCY);
     short xScroll = mmu.get(SCX);
@@ -151,33 +149,13 @@ class PPU {
         int tileCol = xPos / 8;  // bgMap tile column
         int tileIndexAddress = bgMap + tileRow + tileCol;  // tile index in the tile data
         int tileIndex = mmu.get(tileIndexAddress);
-        int tile = 0; // tile base address
-        if (bgTiles == 0x8000)
-          tile = bgTiles + tileSize * tileIndex;
-        else
-          tile = bgTiles + tileSize * ((byte)tileIndex + (byte)tileOffset);
+        int tile = getTileBaseAddress(bgTiles, tileIndex); // tile base address
 
         int tileLine = tile + 2 * (yPos % 8); // The tile's horizontal line being drawn
         short tileLineByte1 = mmu.get(tileLine);  // Lower byte
         short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
         int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (xPos % 8), bgPalette);
         short color = getColor(colorCode);
-
-        if (colorCode == 0x00) {
-          // Util.log("COLOR CODE - " + Util.hex(colorCode));
-          // Util.log("COLOR - " + Util.hex(color));
-        }
-
-
-
-        if (tileIndex != 0) {
-          // Util.log();
-          // Util.log("TILE ROW - " + Util.hex(tileRow));
-          // Util.log("TILE COL - " + Util.hex(tileCol));
-          // Util.log("TILE INDEX ADDRESS - " + Util.hex(tileIndexAddress));
-          // Util.log("TILE INDEX VALUE - " + Util.hex(tileIndex));
-          // Util.log("TILE BASE ADDRESS - " + Util.hex(tile));
-        }
 
         // Upscale the pixels according to scale factor
         for (int i = 0 ; i < SCALE; i++) {
@@ -191,7 +169,21 @@ class PPU {
     }
   }
 
-  private int getColorCode(short lowerByte, short upperByte, int bit, short palette) {
+  private static int getTileBaseAddress(int tileData, int tileIndex) {
+    int tileOffset = 128; // Needed for tile data at 0x8800
+    int tileSize = 16;  // in bytes
+
+    int tile = 0;
+    if (tileData == 0x8000)
+      tile = tileData + tileSize * tileIndex;
+    else {
+      tile = 0x9000 + tileSize * ((byte)tileIndex + (byte)tileOffset);
+    }
+
+    return tile;
+  }
+
+  private static int getColorCode(short lowerByte, short upperByte, int bit, short palette) {
     int lowerBit = CPUMath.getBit(lowerByte, bit);
     int upperBit = CPUMath.getBit(upperByte, bit);
 
@@ -213,7 +205,7 @@ class PPU {
     return colorCode;
   }
 
-  private short getColor(int colorCode) {
+  private static short getColor(int colorCode) {
     if (colorCode < 0 || colorCode > 3) {
       Util.errn("PPU.getColor - Bad color code.");
       return -1;
@@ -238,13 +230,10 @@ class PPU {
   public static void main(String args[]) {
     PPU ppu = new PPU(new ClockCounter());
 
-    short lowerByte = 0x7F;
-    short upperByte = 0xFF;
-    short palette = 0xFC;
-
-    int colorCode = ppu.getColorCode(lowerByte, upperByte, 7, palette);
-    short color = ppu.getColor(colorCode);
-    Util.log("COLOR CODE - " + colorCode);
-    Util.log("COLOR - " + color);
+    int bgTiles = 0x8800;
+    for (int i = 0; i < 384; i++) {
+      int tile = getTileBaseAddress(bgTiles, i);
+      Util.log("tile #" + i + " - " + Util.hex(tile));
+    }
   }
 }
