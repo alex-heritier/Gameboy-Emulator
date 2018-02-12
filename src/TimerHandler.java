@@ -9,7 +9,9 @@ class TimerHandler {
   private MMU mmu;
   private ClockCounter clockCounter;
 
-  private int lastClockCount;
+  private int lastClockCount; // The total clock count from last tick()
+  private int clocksSinceLastIncrement;   // Clock counts since last timer increment
+
 
   public TimerHandler(MMU mmu, ClockCounter clockCounter) {
     this.mmu = mmu;
@@ -28,17 +30,23 @@ class TimerHandler {
     mmu.set(DIV, (short)((currentDiv + delta * 4) & 0xFF));
 
     // Increment TIMER_COUNTER based on TIMER_CONTROL's clock rate
-    short counterIncrement = getCounterIncrement();
-    short currentCounter = mmu.get(TIMER_COUNTER);
-    short newCounter = (short)((currentCounter + counterIncrement * delta) & 0xFF);
+    short timerClockRate = getTimerIncrementInterval();
+    short currentTimerCounter = mmu.get(TIMER_COUNTER);
+    short newTimerCounter = currentTimerCounter;
 
-    // Check for overflow
-    if (newCounter <= currentCounter) {
-      short timerModulo = mmu.get(TIMER_MODULO);
-      newCounter = CPUMath.add8(newCounter, timerModulo).get8();
-      mmu.set(TIMER_COUNTER, newCounter);
+    // Check if it's time to increment timer
+    if (timerClockRate <= clocksSinceLastIncrement) {
+      clocksSinceLastIncrement = clocksSinceLastIncrement - timerClockRate;
+      newTimerCounter = (short)((currentTimerCounter + 1) & 0xFF);
 
-      mmu.raiseInterrupt(2);
+      // Check for overflow
+      if (newTimerCounter == 0) {
+        short timerModulo = mmu.get(TIMER_MODULO);
+        newTimerCounter = CPUMath.add8(newTimerCounter, timerModulo).get8();
+        mmu.set(TIMER_COUNTER, newTimerCounter);
+
+        mmu.raiseInterrupt(2);
+      }
     }
   }
 
@@ -47,20 +55,21 @@ class TimerHandler {
     return CPUMath.getBit(status, 2) > 0;
   }
 
-  private short getCounterIncrement() {
+  // Returns the number of clocks between increments
+  private short getTimerIncrementInterval() {
     short clockSelect = mmu.get(TIMER_CONTROL);
     clockSelect = (short)(clockSelect & 3);
 
-    short inc = 0;
+    short incInterval = 0;
     switch (clockSelect) {
-      case 0: inc = 1; break;
-      case 1: inc = 64; break;
-      case 2: inc = 16; break;
-      case 3: inc = 4; break;
+      case 0: incInterval = 1023; break;  // (4.19 megahertz) / (4096 hertz)
+      case 1: incInterval = 16; break;    // (4.19 megahertz) / (262 144 hertz)
+      case 2: incInterval = 64; break;    // (4.19 megahertz) / (65 536 hertz)
+      case 3: incInterval = 256; break;   // (4.19 megahertz) / (16 384 hertz)
       default:
-        Util.errn("TimerHandler.getCounterIncrement - Bad timer control value.");
+        Util.errn("TimerHandler.getTimerIncrementInterval - Bad timer control value.");
         break;
     }
-    return inc;
+    return incInterval;
   }
 }

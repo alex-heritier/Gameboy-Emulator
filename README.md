@@ -4,7 +4,7 @@
 ### 01-special.gb
 * 2D6AAFF4
 * DAA
-*
+* 
 * Failed #6
 
 ### 02-interrupt.gb
