@@ -5,9 +5,10 @@ SECTION "Jump",ROM0[$100]
 
 SECTION "Main",ROM0[$150]
 start:
-  ld A, $FE
-  ld [$FF00+$06], A ; setup timer modulo
-  ld A, 5
-  ld [$FF00+$07], A ; turn on timer
+  ld A, $00
+  ld B, $99
+.test_loop
+  rrca
+  jr nz, .test_loop
 .hang
   jr .hang

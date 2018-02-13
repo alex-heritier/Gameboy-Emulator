@@ -38,6 +38,7 @@ class Gameboy {
 
     state.setPC(0x100);
     breakpoints.add(0x100);
+    breakpoints.add(0x156);
 
     while (true) {
       int pc = state.PC();
@@ -134,10 +135,14 @@ class Gameboy {
     int to = 0;
     try {
       from = Integer.decode("0x" + st.nextToken());
-      to = Integer.decode("0x" + st.nextToken());
     } catch (Exception e) {
         Util.log("Usage: mem <16bit hex> <16bit hex>");
         return;
+    }
+    try {
+      to = Integer.decode("0x" + st.nextToken());
+    } catch (Exception e) {
+      to = from;
     }
 
     Util.log("Memory " + Util.hex(from) + " - " + Util.hex(to));

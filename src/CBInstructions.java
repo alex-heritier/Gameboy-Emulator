@@ -356,7 +356,7 @@ class CBInstructions {
     state.setReg(reg, newValue);
   }
   private short _swap(short value) {
-    short newValue = (short)(value << 4 | value >> 4);
+    short newValue = (short)((value << 4 | value >> 4) & 0xFF);
 
     state.setFlag(CPUState.Flag.Z, value == 0);
     state.setFlag(CPUState.Flag.N, false);

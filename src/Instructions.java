@@ -549,13 +549,14 @@ class Instructions {
            regA -= 0x60;
    }
 
+   boolean oldCarry = state.getFlag(CPUState.Flag.C);
    boolean carry = (regA & 0x100) == 0x100;
    short value = (short)(regA & 0xFF);
 
    state.setReg(CPUState.R.A, value);
    state.setFlag(CPUState.Flag.Z, value == 0);
    state.setFlag(CPUState.Flag.H, false);
-   state.setFlag(CPUState.Flag.C, carry);
+   state.setFlag(CPUState.Flag.C, carry || oldCarry);
  }
 
  //     - scf
@@ -880,15 +881,15 @@ class Instructions {
    clockCounter.add(1);
 
    short value = state.getReg(CPUState.R.A);
-   boolean msb = (value & 0x80) > 0;
+   int msb = CPUMath.getBit(value, 7);
 
    value <<= 1; // shift left
-   value += (short)(msb ? 1 : 0);  // set bit 0 to old bit 7
+   value += (short)msb;  // set bit 0 to old bit 7
    value &= (short)0xFF;
 
    state.setReg(CPUState.R.A, value);
    state.resetFlags();
-   state.setFlag(CPUState.Flag.C, msb);
+   state.setFlag(CPUState.Flag.C, msb > 0);
  }
 
  //   - RLA
@@ -896,7 +897,7 @@ class Instructions {
    clockCounter.add(1);
 
    short value = state.getReg(CPUState.R.A);
-   boolean msb = (value & 0x80) > 0;
+   int msb = CPUMath.getBit(value, 7);
 
    value <<= 1; // shift left
    value += (short)(state.getFlag(CPUState.Flag.C) ? 1 : 0);  // set bit 0 to carry
@@ -904,7 +905,7 @@ class Instructions {
 
    state.setReg(CPUState.R.A, value);
    state.resetFlags();
-   state.setFlag(CPUState.Flag.C, msb);
+   state.setFlag(CPUState.Flag.C, msb > 0);
  }
 
  //   - RRCA
@@ -912,14 +913,15 @@ class Instructions {
    clockCounter.add(1);
 
    short value = state.getReg(CPUState.R.A);
-   boolean lsb = (value & 0x01) > 0;
+   int lsb = CPUMath.getBit(value, 0);
 
    value >>= 1; // shift right
-   value += (short)(lsb ? 0x80 : 0);  // set bit 7 to old bit 0
+   value += (short)(lsb << 7);  // set bit 7 to old bit 0
+   value &= 0xFF;
 
    state.setReg(CPUState.R.A, value);
    state.resetFlags();
-   state.setFlag(CPUState.Flag.C, lsb);
+   state.setFlag(CPUState.Flag.C, lsb > 0);
  }
 
  //   - RRA
@@ -927,14 +929,15 @@ class Instructions {
    clockCounter.add(1);
 
    short value = state.getReg(CPUState.R.A);
-   boolean lsb = (value & 0x01) > 0;
+   int lsb = CPUMath.getBit(value, 0);
 
    value >>= 1; // shift right
    value += (short)(state.getFlag(CPUState.Flag.C) ? 0x80 : 0);  // set bit 7 to carry
+   value &= 0xFF;
 
    state.setReg(CPUState.R.A, value);
    state.resetFlags();
-   state.setFlag(CPUState.Flag.C, lsb);
+   state.setFlag(CPUState.Flag.C, lsb > 0);
  }
  /* - END 8bit rotations/shifts and bit instructions */
 

@@ -10,7 +10,7 @@ class PPU {
   public static final int VIDEO_HEIGHT = 256;
   public static final int SCREEN_WIDTH = 160;
   public static final int SCREEN_HEIGHT = 144;
-  public static final int SCALE = 1;
+  public static final int SCALE = 2;
   public static final int SCALED_VIDEO_WIDTH = VIDEO_WIDTH * SCALE;
   public static final int SCALED_VIDEO_HEIGHT = VIDEO_WIDTH * SCALE;
   public static final int SCALED_SCREEN_WIDTH = SCREEN_WIDTH * SCALE;
@@ -25,6 +25,7 @@ class PPU {
   public static final int LYC = 0xFF45; // when LY == LYC, trigger
   public static final int DMA = 0xFF46;
   public static final int BG_PALETTE = 0xFF47;
+  public static final int WINDOW_PALETTE = BG_PALETTE;
   public static final int OBJ_PALETTE_0 = 0xFF48;
   public static final int OBJ_PALETTE_1 = 0xFF49;
   public static final int WINDOW_Y_POSITION = 0xFF4A;
@@ -122,10 +123,15 @@ class PPU {
     }
   }
 
-  private int getWindowTileDate() { return getBGTileData(); }
+  private int getWindowTileData() { return getBGTileData(); }
   private int getBGTileData() {
     int selector = CPUMath.getBit(mmu.get(LCDC_CONTROL), 4);
     return selector == 0 ? 0x8800 : 0x8000;
+  }
+
+  private int getWindowTileMap() {
+    int selector = CPUMath.getBit(mmu.get(LCDC_CONTROL), 6);
+    return selector == 0 ? 0x9800 : 0x9C00;
   }
 
   private int getBGTileMap() {
@@ -138,55 +144,95 @@ class PPU {
     return CPUMath.getBit(lcdcValue, 0) > 0;
   }
 
-  private void updateScreen() {
-    updateBG();
+  private boolean isWindowEnabled() {
+    short lcdcValue = mmu.get(LCDC_CONTROL);
+    return CPUMath.getBit(lcdcValue, 5) > 0;
   }
 
-  private void updateBG() {
+  private void updateScreen() {
+    // Draw 256 horizontal lines
+    for (int y = 0; y < VIDEO_HEIGHT; y++) {
+
+      // Draw a horizontal line of pixels
+      for (int x = 0; x < VIDEO_WIDTH; x++) {
+        short color = getPixelColor(x, y);
+
+        // Upscale the pixel according to scale factor
+        for (int i = 0 ; i < SCALE; i++) {
+          for (int j = 0; j < SCALE; j++) {
+            screen.setPixel(SCALE * x + i, SCALE * y + j, color);
+          }
+        }
+      }
+    }
+  }
+
+  private short getPixelColor(int pixelX, int pixelY) {
+    short bgPixel = getBackgroundPixelColor(pixelX, pixelY);
+    short windowPixel = getWindowPixelColor(pixelX, pixelY);
+
+    short activePixel = 0;
+    if (windowPixel == 0xFF)
+      activePixel = bgPixel;
+    else
+      activePixel = windowPixel;
+
+    return activePixel;
+  }
+
+  private short getBackgroundPixelColor(int pixelX, int pixelY) {
+    // Draw white if the background is disabled
+    if (!isBGEnabled())
+      return (short)0xFF;
+
     int bgMap = getBGTileMap();
     int bgTiles = getBGTileData();
     short bgPalette = mmu.get(BG_PALETTE);
-    short yScroll = mmu.get(SCY);
-    short xScroll = mmu.get(SCX);
+    short scrollY = mmu.get(SCY);
+    short scrollX = mmu.get(SCX);
+    int posY = (pixelY + scrollY - (VIDEO_HEIGHT - SCREEN_HEIGHT) / 2) & 0xFF;
+    int tileRow = (posY / 8) * 32;  // bgMap tile row
+    int posX = (pixelX + scrollX - (VIDEO_WIDTH - SCREEN_WIDTH) / 2) & 0xFF;
+    int tileCol = posX / 8;  // bgMap tile column
+    int tileIndexAddress = bgMap + tileRow + tileCol;  // tile index in the tile data
+    int tileIndex = mmu.get(tileIndexAddress);
+    int tile = getTileBaseAddress(bgTiles, tileIndex); // tile base address
 
-    // Util.log("X SCROLL - " + xScroll);
-    // Util.log("Y SCROLL - " + yScroll);
+    int tileLine = tile + 2 * (posY % 8); // The tile's horizontal pixelY being drawn
+    short tileLineByte1 = mmu.get(tileLine);  // Lower byte
+    short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
+    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8), bgPalette);
+    short color = getColor(colorCode);
 
-    // Draw 256 horizontal lines
-    for (int line = 0; line < VIDEO_HEIGHT; line++) {
-      int yPos = (line + yScroll - (VIDEO_HEIGHT - SCREEN_HEIGHT) / 2) & 0xFF;
-      int tileRow = (yPos / 8) * 32;  // bgMap tile row
+    return color;
+  }
 
-      // Util.log("TILE ROW - " + Util.hex(tileRow));
-
-      // Draw a horizontal line of pixels
-      for (int pixel = 0; pixel < VIDEO_WIDTH; pixel++) {
-        int xPos = (pixel + xScroll - (VIDEO_WIDTH - SCREEN_WIDTH) / 2) & 0xFF;
-        int tileCol = xPos / 8;  // bgMap tile column
-        int tileIndexAddress = bgMap + tileRow + tileCol;  // tile index in the tile data
-        int tileIndex = mmu.get(tileIndexAddress);
-        int tile = getTileBaseAddress(bgTiles, tileIndex); // tile base address
-
-        int tileLine = tile + 2 * (yPos % 8); // The tile's horizontal line being drawn
-        short tileLineByte1 = mmu.get(tileLine);  // Lower byte
-        short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
-        int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (xPos % 8), bgPalette);
-        short color = getColor(colorCode);
-
-        // Draw white if the background is disabled
-        if (!isBGEnabled())
-          color = (short)0xFF;
-
-        // Upscale the pixels according to scale factor
-        for (int i = 0 ; i < SCALE; i++) {
-          for (int j = 0; j < SCALE; j++) {
-            screen.setPixel(SCALE * pixel + i, SCALE * line + j, color);
-          }
-        }
-
-        // Util.log("TILE - " + Util.hex(tile));
-      }
+  private short getWindowPixelColor(int pixelX, int pixelY) {
+    // Draw white if the window is disabled
+    if (!isWindowEnabled()) {
+      return (short)0xFF;
     }
+
+    int windowMap = getWindowTileMap();
+    int windowTiles = getWindowTileData();
+    short windowPalette = mmu.get(WINDOW_PALETTE);
+    short windowY = mmu.get(WINDOW_Y_POSITION);
+    short windowX = mmu.get(WINDOW_X_POSITION);
+    int posY = (pixelY - windowY - (VIDEO_HEIGHT - SCREEN_HEIGHT) / 2) & 0xFF;
+    int posX = (pixelX + windowX - (VIDEO_WIDTH - SCREEN_WIDTH) / 2) & 0xFF;
+    int tileRow = (posY / 8) * 32;  // windowMap tile row
+    int tileCol = posX / 8;  // windowMap tile column
+    int tileIndexAddress = windowMap + tileRow + tileCol;  // tile index in the tile data
+    int tileIndex = mmu.get(tileIndexAddress);
+    int tile = getTileBaseAddress(windowTiles, tileIndex); // tile base address
+
+    int tileLine = tile + 2 * (posY % 8); // The tile's horizontal pixelY being drawn
+    short tileLineByte1 = mmu.get(tileLine);  // Lower byte
+    short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
+    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8), windowPalette);
+    short color = getColor(colorCode);
+
+    return color;
   }
 
   private static int getTileBaseAddress(int tileData, int tileIndex) {
@@ -257,6 +303,10 @@ class PPU {
     // Button input
     else if (code >= 4 && CPUMath.getBit(joypad, 5) == 0) {
       CPUMath.resetBit(joypad, code - 4);
+    }
+    else {
+      Util.log("ACTIVATING BUTTON FELL THROUGH");
+      Util.log("Button code " + code);
     }
     mmu.forceSet(JOYPAD, joypad);
 

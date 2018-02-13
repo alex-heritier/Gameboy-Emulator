@@ -2,7 +2,7 @@
 
 ## Blargg Test Progress
 ### 01-special.gb
-* 2D6AAFF4
+* 114947C8
 * DAA
 *
 * Failed #6
@@ -29,8 +29,7 @@
 * Passed
 
 ### 09-op r,r.gb
-* 9F A7 CB 35
-* Failed
+* Passed
 
 ### 10-bit ops.gb
 * Passed

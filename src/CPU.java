@@ -29,20 +29,20 @@ class CPU {
 
   // Run instruction at mmu[PC]
   public void tick() {
+
+    handleInterrupts();
+
+    if (state.isHalted()) {
+      Util.debug("CPU.tick - Halted...");
+      clockCounter.add(1);
+      return;
+    }
+
     short instruction = mmu.get(state.PC());
     short nextByte = mmu.get(CPUMath.inc16(state.PC()));
     short nextNextByte = mmu.get(CPUMath.inc16(CPUMath.inc16(state.PC())));
     Util.debug(Util.hex(state.PC()) + "\t" + Util.hex(instruction) + "\t" + Util.mnemonic(instruction, nextByte, nextNextByte));
 
-    handleInterrupts();
-
-    if (state.isHalted()) {
-      Util.log("CPU.tick - Halted...");
-      clockCounter.add(1);
-      return;
-    }
-
-    instruction = mmu.get(state.PC());  // in case there was an interrupt
     state.incPC();
     decode(instruction);
   }
@@ -609,7 +609,7 @@ class CPU {
         ins.sbc(CPUState.R.H, CPUState.R.L);
         break;
       case 0x9F:  // SBC A,A
-        ins.and(CPUState.R.A);
+        ins.sbc(CPUState.R.A);
         break;
       case 0xA0:  // AND B
         ins.and(CPUState.R.B);
