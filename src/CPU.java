@@ -633,7 +633,7 @@ class CPU {
         ins.and(CPUState.R.H, CPUState.R.L);
         break;
       case 0xA7:  // AND A
-        ins.sub(CPUState.R.A);
+        ins.and(CPUState.R.A);
         break;
       case 0xA8:  // XOR B
         ins.xor(CPUState.R.B);

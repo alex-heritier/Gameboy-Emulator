@@ -10,12 +10,13 @@ class PPU {
   public static final int VIDEO_HEIGHT = 256;
   public static final int SCREEN_WIDTH = 160;
   public static final int SCREEN_HEIGHT = 144;
-  public static final int SCALE = 2;
+  public static final int SCALE = 1;
   public static final int SCALED_VIDEO_WIDTH = VIDEO_WIDTH * SCALE;
   public static final int SCALED_VIDEO_HEIGHT = VIDEO_WIDTH * SCALE;
   public static final int SCALED_SCREEN_WIDTH = SCREEN_WIDTH * SCALE;
   public static final int SCALED_SCREEN_HEIGHT = SCREEN_HEIGHT * SCALE;
 
+  public static final int JOYPAD = 0xFF00;
   public static final int LCDC_CONTROL = 0xFF40;
   public static final int LCDC_STATUS = 0xFF41;
   public static final int SCY = 0xFF42;
@@ -38,7 +39,17 @@ class PPU {
 
   public PPU(ClockCounter clockCounter) {
     this.clockCounter = clockCounter;
-    this.screen = new BasicScreen();
+    this.screen = new BasicScreen(new JoypadListener() {
+      @Override
+      public void onButtonPress(int code) {
+        activateButton(code);
+      }
+
+      @Override
+      public void onButtonRelease(int code) {
+        deactivateButton(code);
+      }
+    });
     this.lastClockCount = clockCounter.count();
     this.lineCounter = 0;
   }
@@ -122,6 +133,11 @@ class PPU {
     return selector == 0 ? 0x9800 : 0x9C00;
   }
 
+  private boolean isBGEnabled() {
+    short lcdcValue = mmu.get(LCDC_CONTROL);
+    return CPUMath.getBit(lcdcValue, 0) > 0;
+  }
+
   private void updateScreen() {
     updateBG();
   }
@@ -156,6 +172,10 @@ class PPU {
         short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
         int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (xPos % 8), bgPalette);
         short color = getColor(colorCode);
+
+        // Draw white if the background is disabled
+        if (!isBGEnabled())
+          color = (short)0xFF;
 
         // Upscale the pixels according to scale factor
         for (int i = 0 ; i < SCALE; i++) {
@@ -226,6 +246,40 @@ class PPU {
 
   public void handleIOPortWrite(int address, short value) {}
 
+  private void activateButton(int code) {
+    Util.log("Pressed " + JoypadListener.parseCode(code));
+    short joypad = mmu.get(JOYPAD);
+    short originalJoypad = joypad;
+    // Directional input
+    if (code < 4 && CPUMath.getBit(joypad, 4) == 0) {
+      CPUMath.resetBit(joypad, code);
+    }
+    // Button input
+    else if (code >= 4 && CPUMath.getBit(joypad, 5) == 0) {
+      CPUMath.resetBit(joypad, code - 4);
+    }
+    mmu.forceSet(JOYPAD, joypad);
+
+    // New button was pressed
+    if (originalJoypad != joypad) {
+      mmu.raiseInterrupt(4);
+    }
+  }
+
+  private void deactivateButton(int code) {
+    Util.log("Released " + JoypadListener.parseCode(code));
+    short joypad = mmu.get(JOYPAD);
+    // Directional input
+    if (code < 4 && CPUMath.getBit(joypad, 4) == 0) {
+      CPUMath.setBit(joypad, code);
+    }
+    // Button input
+    else if (code >= 4 && CPUMath.getBit(joypad, 5) == 0) {
+      CPUMath.setBit(joypad, code - 4);
+    }
+    mmu.forceSet(JOYPAD, joypad);
+  }
+
 
   public static void main(String args[]) {
     PPU ppu = new PPU(new ClockCounter());
@@ -234,6 +288,38 @@ class PPU {
     for (int i = 0; i < 384; i++) {
       int tile = getTileBaseAddress(bgTiles, i);
       Util.log("tile #" + i + " - " + Util.hex(tile));
+    }
+  }
+
+
+  public interface JoypadListener {
+
+    public static final int RIGHT = 0;
+    public static final int LEFT = 1;
+    public static final int UP = 2;
+    public static final int DOWN = 3;
+    public static final int A = 4;
+    public static final int B = 5;
+    public static final int SELECT = 6;
+    public static final int START = 7;
+
+    public void onButtonPress(int code);
+    public void onButtonRelease(int code);
+
+    public static String parseCode(int code) {
+      String z = "";
+      switch (code) {
+        case LEFT: z = "LEFT"; break;
+        case RIGHT: z = "RIGHT"; break;
+        case UP: z = "UP"; break;
+        case DOWN: z = "DOWN"; break;
+        case A: z = "A"; break;
+        case B: z = "B"; break;
+        case START: z = "START"; break;
+        case SELECT: z = "SELECT"; break;
+        default: z = "BAD KEY"; break;
+      }
+      return z;
     }
   }
 }
