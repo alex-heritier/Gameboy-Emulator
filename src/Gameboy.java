@@ -21,9 +21,8 @@ class Gameboy {
     this.cart = cart;
     this.state = new CPUState();
     this.clockCounter = new ClockCounter();
-    this.ppu = new PPU(clockCounter);
-    this.mmu = new MMU(ppu);
-    this.ppu.setMMU(mmu);
+    this.mmu = new MMU();
+    this.ppu = new PPU(clockCounter, mmu);
     this.cpu = new CPU(state, mmu, cart, clockCounter);
     this.timer = new TimerHandler(mmu, clockCounter);
 
@@ -38,7 +37,9 @@ class Gameboy {
 
     state.setPC(0x100);
     breakpoints.add(0x100);
-    breakpoints.add(0x156);
+    // breakpoints.add(0x2332);
+    // breakpoints.add(0x2358);
+    // breakpoints.add(0x2320);
 
     while (true) {
       int pc = state.PC();
@@ -118,6 +119,9 @@ class Gameboy {
       case "timer":
         timer();
         break;
+      case "setmem":
+        setmem(st);
+        break;
       default:
         cnt = false;
         break;
@@ -127,7 +131,6 @@ class Gameboy {
 
   private void mem(StringTokenizer st) {
     if (!st.hasMoreTokens()) {
-      mmu.dump();
       return;
     }
 
@@ -216,5 +219,24 @@ class Gameboy {
     Util.log("TMA - " + Util.hex(timerModulo));
     Util.log("Timer is " + (timerStatus ? "ON" : "OFF"));
     Util.log("Timer frequency - " + TimerHandler.getTimerIncrementInterval(timerControl));
+  }
+
+  private void setmem(StringTokenizer st) {
+    if (st.countTokens() != 2) return;
+
+    int address = 0;
+    short value = 0;
+    try {
+      address = Integer.decode("0x" + st.nextToken());
+      value = Short.decode("0x" + st.nextToken());
+    } catch (Exception e) {
+      Util.log("Usage: memset <a16> <d8>");
+      return;
+    }
+
+    mmu.forceSet(address, value);
+    value = mmu.get(address);
+    Util.log(Util.hex(address) + " = " + Util.hex(value));
+    Util.log();
   }
 }

@@ -320,4 +320,17 @@ class Util {
     }
     return z;
   }
+
+  public static String getInterruptName(int code) {
+    String z = "";
+    switch (code) {
+      case 0: z = "V-Blank"; break;
+      case 1: z = "LCD Stat"; break;
+      case 2: z = "Timer"; break;
+      case 3: z = "Serial"; break;
+      case 4: z = "Joypad"; break;
+      default: z = "BAD INTERRUPT"; break;
+    }
+    return z;
+  }
 }

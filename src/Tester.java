@@ -26,7 +26,7 @@ class Tester {
     String blargg_instr_timing = "roms/tests/instr_timing/instr_timing.gb";
     String blargg_interrupt_timing = "roms/tests/interrupt_time/interrupt_time.gb";
 
-    Cart cart = new Cart(drMario);
+    Cart cart = new Cart(tetris);
     Gameboy gb = new Gameboy(cart);
     gb.run();
   }

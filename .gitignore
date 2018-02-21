@@ -4,3 +4,4 @@ dev/rgb*
 bgb/
 *.gb
 *.o
+*hprof*

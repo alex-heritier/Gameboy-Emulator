@@ -6,3 +6,6 @@ Tester.class: src/*.class
 
 test.gb:
 	dev/build.sh dev/test
+
+src/*.class:
+

@@ -652,12 +652,10 @@ class Instructions {
    // Test half carryValue
    boolean halfCarryFlag = false;
    short lowerSum = (short)(((regValue & 0xF) + (value & 0xF) + carryValue) & 0xF0);
-   Util.log("lowerSum - " + Util.hex(lowerSum));
    halfCarryFlag = lowerSum > 0;
 
    // Test carryValue
    short sum = (short)(regValue + value + carryValue);
-   Util.log("sum - " + Util.hex(sum));
    boolean carryFlag = (sum & 0xFF00) > 0;
    sum &= 0xFF;
 

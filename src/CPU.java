@@ -24,7 +24,6 @@ class CPU {
     for (int i = 0; i < cart.size(); i++) {
       mmu.set(i, cart.get(i));
     }
-    mmu.log(true);
   }
 
   // Run instruction at mmu[PC]
@@ -33,7 +32,7 @@ class CPU {
     handleInterrupts();
 
     if (state.isHalted()) {
-      Util.debug("CPU.tick - Halted...");
+      // Util.debug("CPU.tick - Halted...");
       clockCounter.add(1);
       return;
     }
@@ -100,14 +99,12 @@ class CPU {
 
       if (bit > 0 && ierFlag > 0) {
 
-        Util.log("INTERRUPT - " + i);
 
         // turn off interrupt flag
         interruptFlags = CPUMath.resetBit(interruptFlags, i);
         mmu.set(interruptFlagsAddress, interruptFlags);
 
         int interruptAddress = 0x40 + 8 * i;
-        Util.log("Interrupt address - " + Util.hex(interruptAddress));
 
         ins.push(CPUState.R.PC_0, CPUState.R.PC_1);
         state.setPC(interruptAddress);  // jump to interrupt handler
@@ -116,7 +113,10 @@ class CPU {
         short newInstruction = mmu.get(interruptAddress);
         short data1 = mmu.get(interruptAddress + 1);
         short data2 = mmu.get(interruptAddress + 2);
-        Util.log("\n### New instruction - " + Util.mnemonic(newInstruction, data1, data2));
+
+        Util.debug("HANDLING INTERRUPT - " + Util.getInterruptName(i));
+        Util.debug("Interrupt address - " + Util.hex(interruptAddress));
+        Util.debug("\n### New instruction - " + Util.mnemonic(newInstruction, data1, data2));
 
         // Timing
         clockCounter.add(5);  // 20 / 4
@@ -907,17 +907,5 @@ class CPU {
 
   private void missing(short instruction) {
     Util.errn("Attempted to run missing instruction 0x" + Util.hex(instruction));
-  }
-
-
-  public static void main(String args[]) {
-    CPUState state = new CPUState();
-    Cart cart = new Cart("roms/bios.gb");
-    ClockCounter cc = new ClockCounter();
-    PPU ppu = new PPU(cc);
-    MMU mmu = new MMU(ppu);
-    ppu.setMMU(mmu);
-
-    CPU cpu = new CPU(state, mmu, cart, cc);
   }
 }

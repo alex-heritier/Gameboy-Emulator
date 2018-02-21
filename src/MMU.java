@@ -3,12 +3,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 
 class MMU implements DataSource {
-
-  private ArrayList<Pair> memoryAccesses;
-  private boolean logWrites;
-
-  private PPU ppu;
-
   // ier;           FFFF,        Interrupt Enable Register
   // highRAM;       FF80 - FFFE
   // io;            FF00 - FF7F, IO ports
@@ -24,13 +18,24 @@ class MMU implements DataSource {
   private short[] mem;
 
 
-  public MMU(PPU ppu) {
-    memoryAccesses = new ArrayList<Pair>();
-    logWrites = false;
+  public MMU() {
     mem = new short[0xFFFF + 1];
+    init();
+  }
 
-    this.ppu = ppu;
-    clear();
+  private void _write(int address, short value) {
+    if (address == 0xFF00)
+      value = Joypad.getState(value);
+
+    if (address > 0x8000 && address <= 0x9800) {
+      // Thread.dumpStack();
+    }
+
+    mem[address] = value;
+  }
+
+  private short _read(int address) {
+    return mem[address];
   }
 
   /*
@@ -46,10 +51,10 @@ class MMU implements DataSource {
 
     // Echo's 0xC000 - 0xDDFF
     if (address >= 0xE000 && address < 0xFE00) {
-      return mem[address - 0x2000];
+      return mem[address - 0x2000];//_read(address - 0x2000);
     }
 
-    return mem[address];
+    return mem[address];//_read(address);
   }
 
   /*
@@ -63,10 +68,7 @@ class MMU implements DataSource {
       return;
     }
 
-    if (logWrites) memoryAccesses.add(new Pair(address, value));
-    // Util.log("WRITING - " + Util.hex(address) + "\t" + Util.hex(value));
-
-    mem[address] = value;
+    mem[address] = value;//_write(address, value);
 
     // IO
     if (address >= 0xFF00 && address < 0xFF80) {
@@ -74,7 +76,7 @@ class MMU implements DataSource {
     }
     // Not usable
     else if (address >= 0xFEA0 && address < 0xFF00) {
-      mem[address] = 0;
+      mem[address] = 0;// _write(address, (short)0);
     }
   }
 
@@ -91,6 +93,7 @@ class MMU implements DataSource {
     }
 
     short interruptFlags = get(0xFF0F);
+    Util.debug("Raising interrupt " + Util.getInterruptName(interruptIndex));
     set(0xFF0F, CPUMath.setBit(interruptFlags, interruptIndex));
   }
 
@@ -102,9 +105,13 @@ class MMU implements DataSource {
     }
 
     // 0xFF04
-    if (address == 0xFF04) mem[address] = 0;
+    else if (address == 0xFF04) _write(address, (short)0);
+  }
 
-    ppu.handleIOPortWrite(address, value);
+  private void init() {
+    clear();
+    forceSet(0xFF00, (short)0x1F);  // initialize joypad
+    forceSet(0xFF40, (short)0x80);
   }
 
   private void clear() {
@@ -113,52 +120,8 @@ class MMU implements DataSource {
     }
   }
 
-  public void log(boolean b) {
-    logWrites = b;
-  }
-
-  public void dump() {
-    Util.log("Memory accesses");
-    Collections.sort(memoryAccesses);
-    for (Pair pair : memoryAccesses) {
-      Util.log(Util.hex(pair.address) + "\t" + Util.hex(pair.value));
-    }
-  }
-
   public String toString() {
-    String z = "";
-
-    int rowMarker = 0x10;
-    int columnMarker = 0x04;
-
-    int i = 0;
-
-    // VRAM
-    z += "VRAM\n";
-    for (i = 0x8000; i < 0xA000; i++) {
-      z += Util.hex(get(i));
-
-      if ((i + 1) % rowMarker == 0)        z += "\n";
-      else if ((i + 1) % columnMarker == 0)    z += " ";
-    }
-    z += "\n";
-
+    String z = "MEM";
     return z;
-  }
-
-  private class Pair implements Comparable {
-    public int address;
-    public short value;
-
-    public Pair(int address, short value) {
-      this.address = address;
-      this.value = value;
-    }
-
-    public int compareTo(Object o) {
-      Pair p2 = (Pair) o;
-      if (address != p2.address)  return p2.address - address;
-      else                        return p2.value - value;
-    }
   }
 }
