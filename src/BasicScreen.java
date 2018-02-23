@@ -41,7 +41,7 @@ class BasicScreen implements Screen {
     this.frame.setResizable(false);
     this.frame.show();
 
-    // setupKeyListener();
+    setupKeyListener();
   }
 
   public void setPixel(int x, int y, short color) {
@@ -55,9 +55,9 @@ class BasicScreen implements Screen {
 
     // Util.log("X: " + x + "\tY: " + y + "\tColor: " + rgb);
 
-    buffer.setRGB(x, y, rgb);
-    // int index = y * PPU.SCALED_SCREEN_WIDTH + x;
-    // bufferData[index] = rgb;
+    // buffer.setRGB(x, y, rgb);
+    int index = y * PPU.SCALED_SCREEN_WIDTH + x;
+    bufferData[index] = rgb;
   }
 
   public void draw() {
@@ -102,8 +102,9 @@ class BasicScreen implements Screen {
 
             for (int x = 0; x < 8; x++) {
 
-              int colorCode = PPU.getColorCode(tileLineByte1, tileLineByte2, 7 - x, bgPalette);
-              short color = PPU.getColor(colorCode);
+              int colorCode = PPU.getColorCode(tileLineByte1, tileLineByte2, 7 - x);
+              int paletteColor = PPU.getPaletteColor(colorCode, bgPalette);
+              short color = PPU.getColor(paletteColor);
 
               int rgb = color;
               rgb = (rgb << 8) + color;
@@ -119,9 +120,9 @@ class BasicScreen implements Screen {
                   int drawX = VRAM_SCALE * baseX + j;
                   int drawY = VRAM_SCALE * baseY + i;
                   try {
-                    vramBuffer.setRGB(drawX, drawY, rgb);
-                    // int index = width * drawY + drawX;
-                    // vramBufferData[index] = rgb;
+                    // vramBuffer.setRGB(drawX, drawY, rgb);
+                    int index = width * drawY + drawX;
+                    vramBufferData[index] = rgb;
                   } catch (Exception e) {
                     Util.log("DRAW X - " + Util.hex(drawX));
                     Util.log("DRAW Y - " + Util.hex(drawY));

@@ -15,6 +15,7 @@ class Gameboy {
 
   // For debugging
   private ArrayList<Integer> breakpoints;
+  private ArrayList<Integer> watchpoints;
   private boolean step;
 
   public Gameboy(Cart cart) {
@@ -27,23 +28,23 @@ class Gameboy {
     this.timer = new TimerHandler(mmu, clockCounter);
 
     breakpoints = new ArrayList<Integer>();
+    watchpoints = new ArrayList<Integer>();
     breakpoints.add(0x0);
     step = false;
   }
 
   public void run() {
 
-    // Util.debug = false;
+    Util.debug = false;
 
     state.setPC(0x100);
     breakpoints.add(0x100);
-    // breakpoints.add(0x2332);
-    // breakpoints.add(0x2358);
-    // breakpoints.add(0x2320);
+    breakpoints.add(0x4FF);
 
     while (true) {
       int pc = state.PC();
       if (breakpoints.contains(pc)) debug_break();
+      else if (watchpoints.contains(mmu.lastAccessed())) debug_break();
       else if (step)                {cpu.dump(); prompt();}
 
       tick();
@@ -121,6 +122,9 @@ class Gameboy {
         break;
       case "setmem":
         setmem(st);
+        break;
+      case "watch":
+        watch(st);
         break;
       default:
         cnt = false;
@@ -238,5 +242,46 @@ class Gameboy {
     value = mmu.get(address);
     Util.log(Util.hex(address) + " = " + Util.hex(value));
     Util.log();
+  }
+
+  private void watch(StringTokenizer st) {
+    if (!st.hasMoreTokens()) {
+      Util.log("Watchpoints");
+      Collections.sort(watchpoints);
+      for (int i = 0; i < watchpoints.size(); i++) {
+        Util.log(Util.hex(watchpoints.get(i)));
+      }
+      Util.log();
+      return;
+    }
+
+    int address = 0;
+    try {
+      address = Integer.decode("0x" + st.nextToken());
+    } catch (Exception e) {
+      Util.log("Usage: watch <a16>");
+      return;
+    }
+
+    if (!watchpoints.contains(address))
+      watchpoints.add(address);
+  }
+
+  private void unwatch(StringTokenizer st) {
+    if (!st.hasMoreTokens()) {
+      watchpoints.clear();
+      return;
+    }
+
+    int address = 0;
+    try {
+      address = Integer.decode("0x" + st.nextToken());
+    } catch (Exception e) {
+      Util.log("Usage: unwatch <a16>");
+      return;
+    }
+
+    if (watchpoints.contains(address))
+      watchpoints.remove(Integer.valueOf(address));
   }
 }

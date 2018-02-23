@@ -32,6 +32,12 @@ class PPU {
   public static final int WINDOW_Y_POSITION = 0xFF4A;
   public static final int WINDOW_X_POSITION = 0xFF4B; // really window.x - 7
 
+  public static final int COLOR_BLACK       = 0x00;
+  public static final int COLOR_DARK_GREY   = 0x77;
+  public static final int COLOR_LIGHT_GREY  = 0xCC;
+  public static final int COLOR_WHITE       = 0xFF;
+  public static final int TRANSPARENT = -1;
+
   private MMU mmu;
   private ClockCounter clockCounter;
   private Screen screen;
@@ -171,7 +177,7 @@ class PPU {
 
     // A transparent pixel will return -1
     short spritePixel = getSpritePixelColor(pixelX, pixelY);
-    if (spritePixel != -1)
+    if (spritePixel != TRANSPARENT)
       activePixel = spritePixel;
 
     return activePixel;
@@ -198,8 +204,9 @@ class PPU {
     int tileLine = tile + 2 * (posY % 8); // The tile's horizontal pixelY being drawn
     short tileLineByte1 = mmu.get(tileLine);  // Lower byte
     short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
-    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8), bgPalette);
-    short color = getColor(colorCode);
+    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8));
+    int paletteColor = getPaletteColor(colorCode, bgPalette);
+    short color = getColor(paletteColor);
 
     return color;
   }
@@ -226,8 +233,9 @@ class PPU {
     int tileLine = tile + 2 * (posY % 8); // The tile's horizontal pixelY being drawn
     short tileLineByte1 = mmu.get(tileLine);  // Lower byte
     short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
-    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8), windowPalette);
-    short color = getColor(colorCode);
+    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8));
+    int paletteColor = getPaletteColor(colorCode, windowPalette);
+    short color = getColor(paletteColor);
 
     return color;
   }
@@ -235,11 +243,17 @@ class PPU {
   private short getSpritePixelColor(int pixelX, int pixelY) {
     // Return a transparent pixel if sprites are disabled
     if (!areSpritesEnabled())
-      return (short)-1;
+      return (short)TRANSPARENT;
 
     int spriteTiles = getSpriteTileData();
 
-    short color = -1;
+    short theSpriteY = 0;
+    short theSpriteX = 0;
+    short theTileIndex = 0;
+    short theAttributes = 0;
+    int theColorCode = 0;
+    int thePaletteColor = 0;
+
     short lowestSpriteX = Short.MAX_VALUE;
     short lowestTileIndex = Short.MAX_VALUE;
 
@@ -248,10 +262,6 @@ class PPU {
       short spriteX = mmu.get(i + 1);
       short tileIndex = mmu.get(i + 2);
       short attributes = mmu.get(i + 3);
-
-      if (spriteY != 0x00) {
-        Util.log("SPRITE Y - " + Util.hex(spriteY));
-      }
 
       // Util.log("OAM INDEX - " + Util.hex(i));
       if (((spriteX < lowestSpriteX) || (spriteX == lowestSpriteX && tileIndex < lowestTileIndex))
@@ -264,33 +274,57 @@ class PPU {
         int posY = pixelY - (spriteY - 16);
         int posX = pixelX - (spriteX - 8);
 
-        Util.log("SPRITE Y - " + Util.hex(spriteY));
-        Util.log("SPRITE X - " + Util.hex(spriteX));
-        Util.log("PIXEL Y - " + Util.hex(pixelY));
-        Util.log("PIXEL X - " + Util.hex(pixelX));
-        Util.log("POS Y - " + Util.hex(posY));
-        Util.log("POS X - " + Util.hex(posX));
-        Util.log("SPRITE CONTAINS - " + spriteContainsPixel(spriteX, spriteY, pixelX, pixelY));
-        Util.log();
+        // Util.log("SPRITE Y - " + Util.hex(spriteY));
+        // Util.log("SPRITE X - " + Util.hex(spriteX));
+        // Util.log("PIXEL Y - " + Util.hex(pixelY));
+        // Util.log("PIXEL X - " + Util.hex(pixelX));
+        // Util.log("POS Y - " + Util.hex(posY));
+        // Util.log("POS X - " + Util.hex(posX));
+        // Util.log("SPRITE CONTAINS - " + spriteContainsPixel(spriteX, spriteY, pixelX, pixelY));
+        // Util.log();
 
         short palette = mmu.get(getSpritePalette(attributes));
         int tile = getTileBaseAddress(spriteTiles, tileIndex);
         int tileLine = tile + 2 * posY; // The tile's horizontal pixelY being drawn
         short tileLineByte1 = mmu.get(tileLine);  // Lower byte
         short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
-        int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8), palette);
+        int lineBit = 7 - (posX % 8);
+        int colorCode = getColorCode(tileLineByte1, tileLineByte2, lineBit);
+        int paletteColor = getPaletteColor(colorCode, palette);
 
-        Util.log("TILE INDEX - " + Util.hex(tileIndex));
-        Util.log("TILE ADDRESS - " + Util.hex(tile));
-        Util.log("BYTE 1 - " + Util.hex(tileLineByte1));
-        Util.log("BYTE 2 - " + Util.hex(tileLineByte2));
-        Util.log();
+        // Util.log("TILE LINE BYTE 1 - " + Util.hex(tileLineByte1));
+        // Util.log("TILE LINE BYTE 2 - " + Util.hex(tileLineByte2));
+        // Util.log("LINE BIT - " + Util.hex(lineBit));
+        // Util.log("PALETTE - " + Util.hex(palette));
+        // Util.log("####### COLOR CODE - " + Util.hex(colorCode));
+        // Util.log("####### PALETTE COLOR - " + Util.hex(paletteColor));
+        // Util.log("####### COLOR - " + Util.hex(getColor(colorCode)));
+        //     Util.debug = true;
+        // getColorCode(tileLineByte1, tileLineByte2, lineBit);
+        //     Util.debug = false;
+        // Util.log();
+
+        // Util.log("TILE INDEX - " + Util.hex(tileIndex));
+        // Util.log("TILE ADDRESS - " + Util.hex(tile));
+        // Util.log("BYTE 1 - " + Util.hex(tileLineByte1));
+        // Util.log("BYTE 2 - " + Util.hex(tileLineByte2));
+        // Util.log();
 
         // colorCode 3 is transparent
-        if (colorCode != 3)
-          color = getColor(colorCode);
+        if (colorCode != 0) {
+          theSpriteY = spriteY;
+          theSpriteX = spriteX;
+          theTileIndex = tileIndex;
+          theAttributes = attributes;
+          theColorCode = colorCode;
+          thePaletteColor = paletteColor;
+        }
       }
     }
+
+    short color = TRANSPARENT;
+    if (theColorCode != 0)
+      color = getColor(theColorCode);
 
     return color;
   }
@@ -337,43 +371,47 @@ class PPU {
     return tile;
   }
 
-  public static int getColorCode(short lowerByte, short upperByte, int bit, short palette) {
+  public static int getColorCode(short lowerByte, short upperByte, int bit) {
     int lowerBit = CPUMath.getBit(lowerByte, bit);
     int upperBit = CPUMath.getBit(upperByte, bit);
 
-    short paletteCode = (short)((upperBit << 1) + lowerBit);
-    if (paletteCode < 0 || paletteCode > 3) {
-      Util.errn("PPU.getColorCode - Bad palette code.");
+    short colorCode = (short)((upperBit << 1) + lowerBit);
+    if (colorCode < 0 || colorCode > 3) {
+      Util.errn("PPU.getColorCode - Bad color code.");
       return -1;
     }
 
-    // Util.log("Lower bit - " + Util.bin(lowerBit));
-    // Util.log("Upper bit - " + Util.bin(upperBit));
-    // Util.log("Palette Code - " + Util.bin(paletteCode));
-
-    int shiftAmount = 8 - 2 * (paletteCode + 1);
-    int colorCode = (0xFF & (palette << shiftAmount)) >> 6;
-
-    // Util.log("Color Code - " + Util.bin(colorCode));
+    // Util.debug("Lower bit - " + Util.bin(lowerBit));
+    // Util.debug("Upper bit - " + Util.bin(upperBit));
+    // Util.debug("Color Code - " + Util.bin(colorCode));
 
     return colorCode;
   }
 
-  public static short getColor(int colorCode) {
-    if (colorCode < 0 || colorCode > 3) {
-      Util.errn("PPU.getColor - Bad color code.");
-      return -1;
+  public static int getPaletteColor(int colorCode, short palette) {
+    int shiftAmount = 8 - 2 * (colorCode + 1);
+    int paletteColor = (0xFF & (palette << shiftAmount)) >> 6;
+
+    // Util.debug("Palette Color - " + Util.bin(paletteColor));
+
+    return paletteColor;
+  }
+
+  public static short getColor(int paletteColor) {
+    if (paletteColor < 0 || paletteColor > 3) {
+      Util.errn("PPU.getColor - Bad palette color.");
+      return COLOR_WHITE;
     }
 
-    // Util.log("Color Code - " + Util.bin(colorCode));
+    // Util.log("Color Code - " + Util.bin(paletteColor));
 
-    short color = 0;
-    switch (colorCode) {
-      case 3: color = 0x00; break;
-      case 2: color = 0x77; break;
-      case 1: color = 0xCC; break;
-      case 0: color = 0xFF; break;
-      default: color = 0x22; break;
+    short color = COLOR_WHITE;
+    switch (paletteColor) {
+      case 3: color = COLOR_BLACK; break;
+      case 2: color = COLOR_DARK_GREY; break;
+      case 1: color = COLOR_LIGHT_GREY; break;
+      case 0: color = COLOR_WHITE; break;
+      default: color = COLOR_WHITE; break;
     }
     return color;
   }

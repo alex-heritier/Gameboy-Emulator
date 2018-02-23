@@ -17,6 +17,8 @@ class MMU implements DataSource {
   // romBank00;     0000 - 3FFF
   private short[] mem;
 
+  public int lastAccessed;
+
 
   public MMU() {
     mem = new short[0xFFFF + 1];
@@ -32,6 +34,8 @@ class MMU implements DataSource {
     }
 
     mem[address] = value;
+
+    lastAccessed = address;
   }
 
   private short _read(int address) {
@@ -51,10 +55,10 @@ class MMU implements DataSource {
 
     // Echo's 0xC000 - 0xDDFF
     if (address >= 0xE000 && address < 0xFE00) {
-      return mem[address - 0x2000];//_read(address - 0x2000);
+      return _read(address - 0x2000);
     }
 
-    return mem[address];//_read(address);
+    return _read(address);
   }
 
   /*
@@ -68,7 +72,7 @@ class MMU implements DataSource {
       return;
     }
 
-    mem[address] = value;//_write(address, value);
+    _write(address, value);
 
     // IO
     if (address >= 0xFF00 && address < 0xFF80) {
@@ -76,7 +80,7 @@ class MMU implements DataSource {
     }
     // Not usable
     else if (address >= 0xFEA0 && address < 0xFF00) {
-      mem[address] = 0;// _write(address, (short)0);
+      _write(address, (short)0);
     }
   }
 
@@ -104,8 +108,11 @@ class MMU implements DataSource {
       System.out.print((char)data);
     }
 
-    // 0xFF04
+    // DIV timer
     else if (address == 0xFF04) _write(address, (short)0);
+
+    // OAM DMA
+    else if (address == 0xFF46) dma(value);
   }
 
   private void init() {
@@ -118,6 +125,22 @@ class MMU implements DataSource {
     for (int i = 0; i <= 0xFFFF; i++) {
       set(i, (short)0x00);
     }
+  }
+
+  private void dma(short offset) {
+    int sourceBase = (offset << 8) & 0xFF00;
+    int destinationBase = 0xFE00;
+    for (int i = 0; i < 0xA0; i++) {
+      short sourceValue = get(sourceBase + i);
+      int destination = destinationBase + i;
+      set(destination, sourceValue);
+    }
+  }
+
+  public int lastAccessed() {
+    int z = lastAccessed;
+    lastAccessed = -1;
+    return z;
   }
 
   public String toString() {

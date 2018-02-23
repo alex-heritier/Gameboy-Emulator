@@ -8,7 +8,6 @@ class Tester {
     String tetris = "roms/tetris.gb";
     String drMario = "roms/dr_mario.gb";
     String alleyway = "roms/alleyway.gb";
-    String baseball = "roms/baseball.gb";
     String bios = "roms/bios.gb";
     String test = "dev/test.gb";
     String mooneye = "roms/bits_ram_en.gb";
@@ -26,7 +25,7 @@ class Tester {
     String blargg_instr_timing = "roms/tests/instr_timing/instr_timing.gb";
     String blargg_interrupt_timing = "roms/tests/interrupt_time/interrupt_time.gb";
 
-    Cart cart = new Cart(tetris);
+    Cart cart = new Cart(drMario);
     Gameboy gb = new Gameboy(cart);
     gb.run();
   }
