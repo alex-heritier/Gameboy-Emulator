@@ -1,11 +1,7 @@
 
 class PPU {
 
-  public static final int FULL_LINE_CLOCK_COUNT = (456 / 4);
-  public static final int HBLANK_CLOCK_COUNT = (202 / 4);
-  public static final int READING_OAM_CLOCK_COUNT = (82 / 4);
-  public static final int DRAWING_LINE_CLOCK_COUNT = (172 / 4);
-
+  // Screen dimensions
   public static final int VIDEO_WIDTH = 256;
   public static final int VIDEO_HEIGHT = 256;
   public static final int SCREEN_WIDTH = 160;
@@ -16,6 +12,7 @@ class PPU {
   public static final int SCALED_SCREEN_WIDTH = SCREEN_WIDTH * SCALE;
   public static final int SCALED_SCREEN_HEIGHT = SCREEN_HEIGHT * SCALE;
 
+  // Video register addresses
   public static final int OAM = 0xFE00;
   public static final int JOYPAD = 0xFF00;
   public static final int LCDC_CONTROL = 0xFF40;
@@ -32,25 +29,47 @@ class PPU {
   public static final int WINDOW_Y_POSITION = 0xFF4A;
   public static final int WINDOW_X_POSITION = 0xFF4B; // really window.x - 7
 
+  // LCD colors
   public static final int COLOR_BLACK       = 0x00;
   public static final int COLOR_DARK_GREY   = 0x77;
   public static final int COLOR_LIGHT_GREY  = 0xCC;
   public static final int COLOR_WHITE       = 0xFF;
   public static final int TRANSPARENT = -1;
 
+  // LCD mode clock counts
+  public static final int MODE_0_CC = 202 / 4;    // H-Blank
+  public static final int MODE_1_CC = 4560 / 4;   // V-Blank
+  public static final int MODE_2_CC = 82 / 4;     // Reading from OAM
+  public static final int MODE_3_CC = 172 / 4;    // Transferring data to LCD
+  public static final int SCANLINE_CC = (MODE_0_CC + MODE_2_CC + MODE_3_CC) / 4;
+
+  // LCD mode codes
+  public static final int MODE_0 = 0; // H-Blank
+  public static final int MODE_1 = 1; // V-Blank
+  public static final int MODE_2 = 2; // Reading from OAM
+  public static final int MODE_3 = 3; // Transferring to LCD
+
+
   private MMU mmu;
   private ClockCounter clockCounter;
   private Screen screen;
 
-  private int lastClockCount;
-  private int lineCounter;
+  // Timing variables
+  private int lastClockCount; // The ClockCounter's clock count as of last tick()
+  private int modeCounter;    // The tick's spent in current mode
+  private int mode;           // The LCD's current mode
 
   public PPU(ClockCounter clockCounter, MMU mmu) {
     this.clockCounter = clockCounter;
     this.mmu = mmu;
     this.screen = new BasicScreen(mmu);
     this.lastClockCount = clockCounter.count();
-    this.lineCounter = 0;
+    reset();
+  }
+
+  private void reset() {
+    this.modeCounter = 0;
+    this.mode = MODE_2;
   }
 
   public void tick() {
@@ -58,47 +77,192 @@ class PPU {
     lastClockCount += delta;
 
     if (!isLCDEnabled()) {
-      lineCounter = lastClockCount / FULL_LINE_CLOCK_COUNT;  // Keep line count synced
+      modeCounter = lastClockCount / SCANLINE_CC;  // Keep line count synced
+      reset(); // slows down and bugs the whole display
       return;
     }
 
     // TODO implement LCD status interrupts (mode0, mode1, etc)
 
-    // If lastClockCount exceeds the time it takes to draw a line (line is "done")
-    if (lineCounter < (lastClockCount / FULL_LINE_CLOCK_COUNT)) {
-      short ly = mmu.get(LY);
+    handleClockChange(delta);
+  }
 
-      // Draw line if outside of V-Blank
-      if (screen != null && ly < 0x90) {
-        updateScreen();
-        screen.draw();
+  private void handleClockChange(int delta) {
+    // Update mode counter
+    modeCounter += delta;
+
+    // Util.log("MODE - " + mode);
+    // Util.log("MODE COUNTER - " + modeCounter);
+    // Util.log("LY - " + mmu.get(LY));
+
+    // If in V-Blank
+    if (mode == MODE_1) {
+
+      // If in new scanline
+      if (modeCounter > SCANLINE_CC) {
+        // Move to next scanline
+        modeCounter -= SCANLINE_CC;
+
+        // Increment LY
+        short oldLY = mmu.get(LY);
+        short newLY = (short)(CPUMath.inc8(oldLY).get8() % 0x9A);
+        mmu.set(LY, newLY);
       }
 
-      // Move to next line
-      lineCounter++;
+      short ly = mmu.get(LY);
+      if (ly == 0) {
+        // Move to mode 2
+        mode = MODE_2;
 
-      // Increment LY
-      short lyNext = (short)(CPUMath.inc8(mmu.get(LY)).get8() % 0x9A);
-      mmu.set(LY, lyNext);
+        // Update LCD status
+        short lcdStatus = mmu.get(LCDC_STATUS);
+        lcdStatus = CPUMath.setBit(lcdStatus, 1);
+        lcdStatus = CPUMath.resetBit(lcdStatus, 0);
+        mmu.set(LCDC_STATUS, lcdStatus);
 
-      // If VBlank entered
-      if (lyNext == 0x90)
-        mmu.raiseInterrupt(0);
-
-      // Util.log("NEW LY - " + Util.hex(lyNext));
-
-      // Compare LY and LYC
-      short lyc = mmu.get(LYC);
-
-
-      if (ly == lyc) {
-        handleCoincidence();  // raises STAT interrupt if enabled
-      } else {
-        // Reset coincidence bit
-        short lcdcStatus = CPUMath.resetBit(mmu.get(LCDC_STATUS), 2);
-        mmu.set(LCDC_STATUS, lcdcStatus);
+        // Attempt to raise interrupt
+        if (CPUMath.getBit(lcdStatus, 5) > 0)
+          mmu.raiseInterrupt(1);
       }
     }
+    // Reading from OAM
+    else if (mode == MODE_2) {
+
+      // Is no longer in mode2
+      if (modeCounter > MODE_2_CC) {
+        // Move to next mode
+        modeCounter -= MODE_2_CC;
+        mode = MODE_3;
+
+        // Update LCD status
+        short lcdStatus = mmu.get(LCDC_STATUS);
+        lcdStatus = CPUMath.setBit(lcdStatus, 1);
+        lcdStatus = CPUMath.resetBit(lcdStatus, 0);
+        mmu.set(LCDC_STATUS, lcdStatus);
+      }
+    }
+    // Transferring to LCD
+    else if (mode == MODE_3) {
+
+      // Is no longer in mode3
+      if (modeCounter > MODE_3_CC) {
+        // Move to next mode
+        modeCounter -= MODE_3_CC;
+        mode = MODE_0;
+
+        // Update LCD status
+        short lcdStatus = mmu.get(LCDC_STATUS);
+        lcdStatus = CPUMath.setBit(lcdStatus, 1);
+        lcdStatus = CPUMath.setBit(lcdStatus, 0);
+        mmu.set(LCDC_STATUS, lcdStatus);
+
+        // Attempt to raise interrupt
+        if (CPUMath.getBit(lcdStatus, 3) > 0)
+          mmu.raiseInterrupt(1);
+      }
+    }
+    // H-Blank
+    else {
+
+      // Is no longer in mode0
+      if (modeCounter > MODE_0_CC) {
+
+        // Increment LY
+        short oldLY = mmu.get(LY);
+        short newLY = (short)(CPUMath.inc8(oldLY).get8() % 0x9A);
+        mmu.set(LY, newLY);
+
+        // Compare LY and LYC
+        short lyc = mmu.get(LYC);
+
+        if (newLY == lyc) {
+          handleCoincidence();  // raises STAT interrupt if enabled
+        } else {
+          // Reset coincidence bit
+          short lcdStatus = mmu.get(LCDC_STATUS);
+          lcdStatus = CPUMath.resetBit(lcdStatus, 2);
+          mmu.set(LCDC_STATUS, lcdStatus);
+        }
+
+        // Is in V-Blank
+        if (newLY == 0x90) {
+
+          // Move to next mode
+          mode = MODE_1;
+          modeCounter -= MODE_0_CC;
+
+          // Update LCD status
+          short lcdStatus = mmu.get(LCDC_STATUS);
+          lcdStatus = CPUMath.resetBit(lcdStatus, 1);
+          lcdStatus = CPUMath.setBit(lcdStatus, 0);
+          mmu.set(LCDC_STATUS, lcdStatus);
+
+          // Attemt to raise interrupt (Different from dedicated V-Blank interrupt)
+          if (CPUMath.getBit(lcdStatus, 4) > 0)
+            mmu.raiseInterrupt(1);
+
+          // Raise dedicated V-Blank interrupt
+          mmu.raiseInterrupt(0);
+        }
+        // Is entering mode2
+        else {
+
+          // Move to next mode
+          mode = MODE_2;
+          modeCounter -= MODE_0_CC;
+
+          // Update LCD status
+          short lcdStatus = mmu.get(LCDC_STATUS);
+          lcdStatus = CPUMath.setBit(lcdStatus, 1);
+          lcdStatus = CPUMath.resetBit(lcdStatus, 0);
+          mmu.set(LCDC_STATUS, lcdStatus);
+
+          // Attempt to raise interrupt
+          if (CPUMath.getBit(lcdStatus, 5) > 0)
+            mmu.raiseInterrupt(1);
+
+          // Draw screen
+          if (screen != null) {
+            updateScreen();
+            screen.draw();
+          }
+        }
+      }
+    }
+
+
+    // // If lastClockCount exceeds the time it takes to draw a line (line is "done")
+    // if (modeCounter <= (lastClockCount / SCANLINE_CC)) {
+    //   short ly = mmu.get(LY);
+    //
+    //   // Draw line if outside of V-Blank
+    //   if (screen != null && ly < 0x90) {
+    //     updateScreen();
+    //     screen.draw();
+    //   }
+    //
+    //   // Move to next line
+    //   modeCounter++;
+    //
+    //   // Increment LY
+    //   short lyNext = (short)(CPUMath.inc8(mmu.get(LY)).get8() % 0x9A);
+    //   mmu.set(LY, lyNext);
+    //
+    //   // If VBlank entered
+    //   if (lyNext == 0x90)
+    //     mmu.raiseInterrupt(0);
+    //
+    //   // Compare LY and LYC
+    //   short lyc = mmu.get(LYC);
+    //
+    //   if (ly == lyc) {
+    //     handleCoincidence();  // raises STAT interrupt if enabled
+    //   } else {
+    //     // Reset coincidence bit
+    //     short lcdcStatus = CPUMath.resetBit(mmu.get(LCDC_STATUS), 2);
+    //     mmu.set(LCDC_STATUS, lcdcStatus);
+    //   }
+    // }
   }
 
   private boolean isLCDEnabled() {
@@ -171,6 +335,8 @@ class PPU {
   }
 
   private short getPixelColor(int pixelX, int pixelY) {
+    if (!isLCDEnabled()) return COLOR_WHITE;
+
     short activePixel = getWindowPixelColor(pixelX, pixelY);
     if (activePixel == 0xFF)
       activePixel = getBackgroundPixelColor(pixelX, pixelY);
