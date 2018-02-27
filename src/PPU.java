@@ -229,40 +229,6 @@ class PPU {
         }
       }
     }
-
-
-    // // If lastClockCount exceeds the time it takes to draw a line (line is "done")
-    // if (modeCounter <= (lastClockCount / SCANLINE_CC)) {
-    //   short ly = mmu.get(LY);
-    //
-    //   // Draw line if outside of V-Blank
-    //   if (screen != null && ly < 0x90) {
-    //     updateScreen();
-    //     screen.draw();
-    //   }
-    //
-    //   // Move to next line
-    //   modeCounter++;
-    //
-    //   // Increment LY
-    //   short lyNext = (short)(CPUMath.inc8(mmu.get(LY)).get8() % 0x9A);
-    //   mmu.set(LY, lyNext);
-    //
-    //   // If VBlank entered
-    //   if (lyNext == 0x90)
-    //     mmu.raiseInterrupt(0);
-    //
-    //   // Compare LY and LYC
-    //   short lyc = mmu.get(LYC);
-    //
-    //   if (ly == lyc) {
-    //     handleCoincidence();  // raises STAT interrupt if enabled
-    //   } else {
-    //     // Reset coincidence bit
-    //     short lcdcStatus = CPUMath.resetBit(mmu.get(LCDC_STATUS), 2);
-    //     mmu.set(LCDC_STATUS, lcdcStatus);
-    //   }
-    // }
   }
 
   private boolean isLCDEnabled() {
@@ -337,22 +303,35 @@ class PPU {
   private short getPixelColor(int pixelX, int pixelY) {
     if (!isLCDEnabled()) return COLOR_WHITE;
 
-    short activePixel = getWindowPixelColor(pixelX, pixelY);
-    if (activePixel == 0xFF)
-      activePixel = getBackgroundPixelColor(pixelX, pixelY);
+    final Pixel windowPixel = getWindowPixelColor(pixelX, pixelY);
+    final Pixel bgPixel = getBackgroundPixelColor(pixelX, pixelY);
+    final Sprite sprite = getSprite(pixelX, pixelY);
 
-    // A transparent pixel will return -1
-    short spritePixel = getSpritePixelColor(pixelX, pixelY);
-    if (spritePixel != TRANSPARENT)
-      activePixel = spritePixel;
+    Pixel activePixel = windowPixel;
+    if (activePixel.color == 0)
+      activePixel = bgPixel;
 
-    return activePixel;
+    // A transparent pixel will return TRANSPARENT
+    if (sprite.color != TRANSPARENT) {
+
+      // Sprite priority determines if sprite is above or below background
+      if (sprite.priority() == 1) {
+        if (windowPixel.colorCode != 0)
+          activePixel = windowPixel;
+        else if (bgPixel.colorCode != 0)
+          activePixel = bgPixel;
+      } else {
+        activePixel = sprite.getPixel();
+      }
+    }
+
+    return activePixel.color;
   }
 
-  private short getBackgroundPixelColor(int pixelX, int pixelY) {
+  private Pixel getBackgroundPixelColor(int pixelX, int pixelY) {
     // Draw white if the background is disabled
     if (!isBGEnabled())
-      return (short)0xFF;
+      return new Pixel();
 
     int bgMap = getBGTileMap();
     int bgTiles = getBGTileData();
@@ -374,13 +353,18 @@ class PPU {
     int paletteColor = getPaletteColor(colorCode, bgPalette);
     short color = getColor(paletteColor);
 
-    return color;
+    Pixel px = new Pixel();
+    px.colorCode = colorCode;
+    px.paletteColor = paletteColor;
+    px.color = color;
+
+    return px;
   }
 
-  private short getWindowPixelColor(int pixelX, int pixelY) {
+  private Pixel getWindowPixelColor(int pixelX, int pixelY) {
     // Draw white if the window is disabled
     if (!isWindowEnabled()) {
-      return (short)0xFF;
+      return new Pixel();
     }
 
     int windowMap = getWindowTileMap();
@@ -403,22 +387,22 @@ class PPU {
     int paletteColor = getPaletteColor(colorCode, windowPalette);
     short color = getColor(paletteColor);
 
-    return color;
+    Pixel px = new Pixel();
+    px.colorCode = colorCode;
+    px.paletteColor = paletteColor;
+    px.color = color;
+
+    return px;
   }
 
-  private short getSpritePixelColor(int pixelX, int pixelY) {
+  private Sprite getSprite(int pixelX, int pixelY) {
     // Return a transparent pixel if sprites are disabled
     if (!areSpritesEnabled())
-      return (short)TRANSPARENT;
+      return new Sprite((short)TRANSPARENT);
 
     int spriteTiles = getSpriteTileData();
 
-    short theSpriteY = 0;
-    short theSpriteX = 0;
-    short theTileIndex = 0;
-    short theAttributes = 0;
-    int theColorCode = 0;
-    int thePaletteColor = 0;
+    Sprite sprite = new Sprite();
 
     short lowestSpriteX = Short.MAX_VALUE;
     short lowestTileIndex = Short.MAX_VALUE;
@@ -440,15 +424,6 @@ class PPU {
         int posY = pixelY - (spriteY - 16);
         int posX = pixelX - (spriteX - 8);
 
-        // Util.log("SPRITE Y - " + Util.hex(spriteY));
-        // Util.log("SPRITE X - " + Util.hex(spriteX));
-        // Util.log("PIXEL Y - " + Util.hex(pixelY));
-        // Util.log("PIXEL X - " + Util.hex(pixelX));
-        // Util.log("POS Y - " + Util.hex(posY));
-        // Util.log("POS X - " + Util.hex(posX));
-        // Util.log("SPRITE CONTAINS - " + spriteContainsPixel(spriteX, spriteY, pixelX, pixelY));
-        // Util.log();
-
         short palette = mmu.get(getSpritePalette(attributes));
         int tile = getTileBaseAddress(spriteTiles, tileIndex);
         int tileLine = tile + 2 * posY; // The tile's horizontal pixelY being drawn
@@ -458,41 +433,24 @@ class PPU {
         int colorCode = getColorCode(tileLineByte1, tileLineByte2, lineBit);
         int paletteColor = getPaletteColor(colorCode, palette);
 
-        // Util.log("TILE LINE BYTE 1 - " + Util.hex(tileLineByte1));
-        // Util.log("TILE LINE BYTE 2 - " + Util.hex(tileLineByte2));
-        // Util.log("LINE BIT - " + Util.hex(lineBit));
-        // Util.log("PALETTE - " + Util.hex(palette));
-        // Util.log("####### COLOR CODE - " + Util.hex(colorCode));
-        // Util.log("####### PALETTE COLOR - " + Util.hex(paletteColor));
-        // Util.log("####### COLOR - " + Util.hex(getColor(colorCode)));
-        //     Util.debug = true;
-        // getColorCode(tileLineByte1, tileLineByte2, lineBit);
-        //     Util.debug = false;
-        // Util.log();
-
-        // Util.log("TILE INDEX - " + Util.hex(tileIndex));
-        // Util.log("TILE ADDRESS - " + Util.hex(tile));
-        // Util.log("BYTE 1 - " + Util.hex(tileLineByte1));
-        // Util.log("BYTE 2 - " + Util.hex(tileLineByte2));
-        // Util.log();
-
         // colorCode 3 is transparent
         if (colorCode != 0) {
-          theSpriteY = spriteY;
-          theSpriteX = spriteX;
-          theTileIndex = tileIndex;
-          theAttributes = attributes;
-          theColorCode = colorCode;
-          thePaletteColor = paletteColor;
+          sprite.y = spriteY;
+          sprite.x = spriteX;
+          sprite.index = tileIndex;
+          sprite.attributes = attributes;
+          sprite.colorCode = colorCode;
+          sprite.paletteColor = paletteColor;
         }
       }
     }
 
     short color = TRANSPARENT;
-    if (theColorCode != 0)
-      color = getColor(theColorCode);
+    if (sprite.colorCode != 0)
+      color = getColor(sprite.colorCode);
 
-    return color;
+    sprite.color = color;
+    return sprite;
   }
 
   private boolean spriteContainsPixel(short posX, short posY, int pixelX, int pixelY) {
@@ -580,6 +538,37 @@ class PPU {
       default: color = COLOR_WHITE; break;
     }
     return color;
+  }
+
+  private class Pixel {
+    public int colorCode = 0;
+    public int paletteColor = 0;
+    public short color = 0;
+  }
+
+  private class Sprite {
+    public int y;
+    public int x;
+    public int index;
+    public int attributes;
+    public int colorCode;
+    public int paletteColor;
+    public short color;
+
+    public Sprite() {}
+    public Sprite(short color) {this.color = color;}
+
+    public Pixel getPixel() {
+      Pixel px = new Pixel();
+      px.colorCode = colorCode;
+      px.paletteColor = paletteColor;
+      px.color = color;
+      return px;
+    }
+
+    public int priority() {
+      return CPUMath.getBit((short)attributes, 7);
+    }
   }
 
 

@@ -34,7 +34,7 @@ class Joypad {
   }
 
   public static void setState(int code, boolean set) {
-    // Util.log("Joypad.setState - " + code + " = " + set);
+    Util.log("Joypad.setState - " + code + " = " + set);
 
     if (set)
       joypadState = CPUMath.resetBit(joypadState, code);
