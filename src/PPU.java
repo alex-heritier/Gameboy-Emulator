@@ -62,10 +62,12 @@ class PPU {
   public PPU(ClockCounter clockCounter, MMU mmu) {
     this.clockCounter = clockCounter;
     this.mmu = mmu;
-    this.screen = new BasicScreen(mmu);
+    this.screen = new BasicScreen(mmu, this);
     this.lastClockCount = clockCounter.count();
     reset();
   }
+
+  public int getMode() { return this.mode; }
 
   private void reset() {
     this.modeCounter = 0;

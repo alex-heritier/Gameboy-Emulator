@@ -13,14 +13,18 @@ import java.awt.image.DataBufferInt;
 class BasicScreen implements Screen {
 
   private static final int VRAM_SCALE = 2;
+  private static final int JOYPAD_SCALE = 2;
 
+  private PPU ppu;
   private BufferedImage buffer;
   private int[] bufferData;
   private JFrame frame;
   private JPanel gamePanel;
   private JPanel vramPanel;
+  private JPanel joypadPanel;
 
-  public BasicScreen(MMU mmu) {
+  public BasicScreen(MMU mmu, PPU ppu) {
+    this.ppu = ppu;
     this.buffer = new BufferedImage(PPU.SCALED_SCREEN_WIDTH, PPU.SCALED_SCREEN_HEIGHT, BufferedImage.TYPE_INT_RGB);
     this.bufferData = ((DataBufferInt) buffer.getRaster().getDataBuffer()).getData();
     this.frame = new JFrame("Gameboy");
@@ -29,10 +33,14 @@ class BasicScreen implements Screen {
     this.gamePanel.setPreferredSize(new Dimension(PPU.SCALED_SCREEN_WIDTH, PPU.SCALED_SCREEN_HEIGHT));
     this.vramPanel = createVRAMPanel(VRAM_SCALE * 8 * 16, VRAM_SCALE * 8 * 24, mmu);
     this.vramPanel.setVisible(true);
-    this.vramPanel.setPreferredSize(new Dimension(PPU.SCALED_SCREEN_WIDTH, PPU.SCALED_SCREEN_HEIGHT));
+    this.vramPanel.setPreferredSize(new Dimension(PPU.SCALED_SCREEN_WIDTH/2, PPU.SCALED_SCREEN_HEIGHT));
+    this.joypadPanel = createJoypadPanel(JOYPAD_SCALE * 8 * 16, JOYPAD_SCALE * 8 * 24, mmu);
+    this.joypadPanel.setVisible(true);
+    this.joypadPanel.setPreferredSize(new Dimension(PPU.SCALED_SCREEN_WIDTH/2, PPU.SCALED_SCREEN_HEIGHT));
     JPanel mainPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
     mainPanel.add(this.gamePanel);
     mainPanel.add(this.vramPanel);
+    mainPanel.add(this.joypadPanel);
     mainPanel.setVisible(true);
     mainPanel.setPreferredSize(mainPanel.getPreferredSize());
     this.frame.add(mainPanel);
@@ -139,18 +147,40 @@ class BasicScreen implements Screen {
     };
   }
 
+  private JPanel createJoypadPanel(int w, int h, MMU _mmu) {
+    return new JPanel() {
+      private int width = w;
+      private int height = h;
+      private MMU mmu = _mmu;
+
+      protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+
+        g.drawString("A\t\t" + Joypad.getState(Joypad.A), 0, 12);
+        g.drawString("B\t\t" + Joypad.getState(Joypad.B), 0, 24);
+        g.drawString("Sel\t" + Joypad.getState(Joypad.SELECT), 0, 36);
+        g.drawString("Str\t" + Joypad.getState(Joypad.START), 0, 48);
+        g.drawString("LEFT\t" + Joypad.getState(Joypad.LEFT), 0, 60);
+        g.drawString("RIGHT\t" + Joypad.getState(Joypad.RIGHT), 0, 72);
+        g.drawString("UP\t" + Joypad.getState(Joypad.UP), 0, 84);
+        g.drawString("DOWN\t" + Joypad.getState(Joypad.DOWN), 0, 96);
+        g.drawString("PPU Mode\t" + ppu.getMode(), 0, 120);
+      }
+    };
+  }
+
   private void setupKeyListener() {
     frame.addKeyListener(new KeyListener() {
       @Override
       public void keyPressed(KeyEvent e) {
-        int key = keyCodeToJoypadCode(e);
+        short key = keyCodeToJoypadCode(e);
         if (key != -1)
           Joypad.setState(key, Joypad.ON);
       }
 
       @Override
       public void keyReleased(KeyEvent e) {
-        int key = keyCodeToJoypadCode(e);
+        short key = keyCodeToJoypadCode(e);
         if (key != -1)
           Joypad.setState(key, Joypad.OFF);
       }
@@ -160,8 +190,8 @@ class BasicScreen implements Screen {
     });
   }
 
-  private int keyCodeToJoypadCode(KeyEvent e) {
-    int key = -1;
+  private short keyCodeToJoypadCode(KeyEvent e) {
+    short key = -1;
     switch (e.getKeyCode()) {
       case KeyEvent.VK_LEFT:
         key = Joypad.LEFT;

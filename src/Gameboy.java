@@ -17,6 +17,7 @@ class Gameboy {
   private ArrayList<Integer> breakpoints;
   private ArrayList<Integer> watchpoints;
   private boolean step;
+  private long tickCounter = 0;
 
   public Gameboy(Cart cart) {
     this.cart = cart;
@@ -27,19 +28,18 @@ class Gameboy {
     this.cpu = new CPU(state, mmu, cart, clockCounter);
     this.timer = new TimerHandler(mmu, clockCounter);
 
-    breakpoints = new ArrayList<Integer>();
-    watchpoints = new ArrayList<Integer>();
+    this.breakpoints = new ArrayList<Integer>();
+    this.watchpoints = new ArrayList<Integer>();
     breakpoints.add(0x0);
-    step = false;
+    this.step = false;
   }
 
   public void run() {
-
     Util.debug = false;
 
     state.setPC(0x100);
-    breakpoints.add(0x100);
-    breakpoints.add(0x4FF);
+    // breakpoints.add(0x100);
+    // breakpoints.add(0x4FF);
 
     while (true) {
       int pc = state.PC();
@@ -48,6 +48,10 @@ class Gameboy {
       else if (step)                {cpu.dump(); prompt();}
 
       tick();
+      // try {
+      //   if (tickCounter % 13 == 0)
+      //     Thread.sleep(1);
+      // } catch (Exception e) {e.printStackTrace();}
     }
   }
 
@@ -55,6 +59,7 @@ class Gameboy {
     timer.tick();
     cpu.tick();
     ppu.tick();
+    this.tickCounter++;
   }
 
 

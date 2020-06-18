@@ -1,17 +1,17 @@
 
-class Joypad {
+abstract class Joypad {
 
   public static final boolean ON = true;
   public static final boolean OFF = false;
 
-  public static final int RIGHT = 0;
-  public static final int LEFT = 1;
-  public static final int UP = 2;
-  public static final int DOWN = 3;
-  public static final int A = 4;
-  public static final int B = 5;
-  public static final int SELECT = 6;
-  public static final int START = 7;
+  public static final short RIGHT = 0;
+  public static final short LEFT = 1;
+  public static final short UP = 2;
+  public static final short DOWN = 3;
+  public static final short A = 4;
+  public static final short B = 5;
+  public static final short SELECT = 6;
+  public static final short START = 7;
 
   private static short joypadState = 0;
 
@@ -33,7 +33,7 @@ class Joypad {
     return (short)((joypadState >> 4) & 0x0F);
   }
 
-  public static void setState(int code, boolean set) {
+  public static void setState(short code, boolean set) {
     Util.log("Joypad.setState - " + code + " = " + set);
 
     if (set)
