@@ -56,6 +56,7 @@ class Gameboy {
   }
 
   private void tick() {
+    // Util.log(".");
     timer.tick();
     cpu.tick();
     ppu.tick();

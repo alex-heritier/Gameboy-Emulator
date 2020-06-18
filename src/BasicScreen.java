@@ -156,14 +156,14 @@ class BasicScreen implements Screen {
       protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        g.drawString("A\t\t" + Joypad.getState(Joypad.A), 0, 12);
-        g.drawString("B\t\t" + Joypad.getState(Joypad.B), 0, 24);
-        g.drawString("Sel\t" + Joypad.getState(Joypad.SELECT), 0, 36);
-        g.drawString("Str\t" + Joypad.getState(Joypad.START), 0, 48);
-        g.drawString("LEFT\t" + Joypad.getState(Joypad.LEFT), 0, 60);
-        g.drawString("RIGHT\t" + Joypad.getState(Joypad.RIGHT), 0, 72);
-        g.drawString("UP\t" + Joypad.getState(Joypad.UP), 0, 84);
-        g.drawString("DOWN\t" + Joypad.getState(Joypad.DOWN), 0, 96);
+        g.drawString("A\t\t" + Joypad.read(Joypad.Button.A), 0, 12);
+        g.drawString("B\t\t" + Joypad.read(Joypad.Button.B), 0, 24);
+        g.drawString("Sel\t" + Joypad.read(Joypad.Button.SELECT), 0, 36);
+        g.drawString("Str\t" + Joypad.read(Joypad.Button.START), 0, 48);
+        g.drawString("LEFT\t" + Joypad.read(Joypad.Button.LEFT), 0, 60);
+        g.drawString("RIGHT\t" + Joypad.read(Joypad.Button.RIGHT), 0, 72);
+        g.drawString("UP\t" + Joypad.read(Joypad.Button.UP), 0, 84);
+        g.drawString("DOWN\t" + Joypad.read(Joypad.Button.DOWN), 0, 96);
         g.drawString("PPU Mode\t" + ppu.getMode(), 0, 120);
       }
     };
@@ -173,16 +173,16 @@ class BasicScreen implements Screen {
     frame.addKeyListener(new KeyListener() {
       @Override
       public void keyPressed(KeyEvent e) {
-        short key = keyCodeToJoypadCode(e);
-        if (key != -1)
-          Joypad.setState(key, Joypad.ON);
+        Joypad.Button btn = keyCodeToJoypadButton(e);
+        if (btn != null)
+          Joypad.set(btn, Joypad.ON);
       }
 
       @Override
       public void keyReleased(KeyEvent e) {
-        short key = keyCodeToJoypadCode(e);
-        if (key != -1)
-          Joypad.setState(key, Joypad.OFF);
+        Joypad.Button btn = keyCodeToJoypadButton(e);
+        if (btn != null)
+          Joypad.set(btn, Joypad.OFF);
       }
 
       @Override
@@ -190,37 +190,37 @@ class BasicScreen implements Screen {
     });
   }
 
-  private short keyCodeToJoypadCode(KeyEvent e) {
-    short key = -1;
+  private Joypad.Button keyCodeToJoypadButton(KeyEvent e) {
+    Joypad.Button button = null;
     switch (e.getKeyCode()) {
       case KeyEvent.VK_LEFT:
-        key = Joypad.LEFT;
+        button = Joypad.Button.LEFT;
         break;
       case KeyEvent.VK_RIGHT:
-        key = Joypad.RIGHT;
+        button = Joypad.Button.RIGHT;
         break;
       case KeyEvent.VK_UP:
-        key = Joypad.UP;
+        button = Joypad.Button.UP;
         break;
       case KeyEvent.VK_DOWN:
-        key = Joypad.DOWN;
+        button = Joypad.Button.DOWN;
         break;
       case KeyEvent.VK_Z:
-        key = Joypad.A;
+        button = Joypad.Button.A;
         break;
       case KeyEvent.VK_X:
-        key = Joypad.B;
+        button = Joypad.Button.B;
         break;
       case KeyEvent.VK_ENTER:
-        key = Joypad.START;
+        button = Joypad.Button.START;
         break;
       case KeyEvent.VK_SHIFT:
-        key = Joypad.SELECT;
+        button = Joypad.Button.SELECT;
         break;
       default:
         // Util.log("BasicScreen.setupJoypad - Invalid key code " + e.getKeyCode());
         break;
     }
-    return key;
+    return button;
   }
 }

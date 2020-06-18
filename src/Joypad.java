@@ -1,44 +1,70 @@
 
-abstract class Joypad {
+import java.util.HashMap;
 
+abstract class Joypad {
   public static final boolean ON = true;
   public static final boolean OFF = false;
 
-  public static final short RIGHT = 0;
-  public static final short LEFT = 1;
-  public static final short UP = 2;
-  public static final short DOWN = 3;
-  public static final short A = 4;
-  public static final short B = 5;
-  public static final short SELECT = 6;
-  public static final short START = 7;
+  public enum Button {
+    RIGHT,
+    LEFT,
+    UP,
+    DOWN,
+    A,
+    B,
+    SELECT,
+    START,
+  };
 
-  private static short joypadState = 0;
-
-  public static short getState(short joypadValue) {
-    short state = 0;
-    if ((joypadValue & 0x20) == 0)
-      state = getButtonState();
-    else if ((joypadValue & 0x10) == 0)
-      state = getDirectionalState();
-
-    return (short)(state | (joypadValue & 0xF0));
+  private static HashMap<Button, Boolean> buttons = new HashMap();
+  static {
+    Joypad.buttons.put(Button.RIGHT, false);
+    Joypad.buttons.put(Button.LEFT, false);
+    Joypad.buttons.put(Button.UP, false);
+    Joypad.buttons.put(Button.DOWN, false);
+    Joypad.buttons.put(Button.A, false);
+    Joypad.buttons.put(Button.B, false);
+    Joypad.buttons.put(Button.SELECT, false);
+    Joypad.buttons.put(Button.START, false);
   }
 
-  private static short getDirectionalState() {
-    return (short)(joypadState & 0x0F);
+  public static short getState(short memValue) {
+    short state = 0;
+    if ((memValue & 0x20) == 0)
+      state = getButtonState();
+    else if ((memValue & 0x10) == 0)
+      state = getDirectionalState();
+
+    return (short)(state | (memValue & 0xF0));
   }
 
   private static short getButtonState() {
-    return (short)((joypadState >> 4) & 0x0F);
+    short state = 0;
+    if (read(Button.START)) state = CPUMath.setBit(state, 3);
+    if (read(Button.SELECT)) state = CPUMath.setBit(state, 2);
+    if (read(Button.B)) state = CPUMath.setBit(state, 1);
+    if (read(Button.A)) state = CPUMath.setBit(state, 0);
+    // Util.log("Joypad.getButtonState - " + Util.bin(state));
+
+    return (short)(state & 0x0F);
   }
 
-  public static void setState(short code, boolean set) {
-    Util.log("Joypad.setState - " + code + " = " + set);
+  private static short getDirectionalState() {
+    short state = 0;
+    if (read(Button.DOWN)) state = CPUMath.setBit(state, 3);
+    if (read(Button.UP)) state = CPUMath.setBit(state, 2);
+    if (read(Button.LEFT)) state = CPUMath.setBit(state, 1);
+    if (read(Button.RIGHT)) state = CPUMath.setBit(state, 0);
+    // Util.log("Joypad.getDirectionalState - " + Util.bin(state));
 
-    if (set)
-      joypadState = CPUMath.resetBit(joypadState, code);
-    else
-      joypadState = CPUMath.setBit(joypadState, code);
+    return (short)(state & 0x0F);
+  }
+
+  public static boolean read(Button button) {
+    return buttons.get(button);
+  }
+
+  public static void set(Button button, boolean val) {
+    buttons.put(button, val);
   }
 }

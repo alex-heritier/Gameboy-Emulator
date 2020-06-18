@@ -39,6 +39,13 @@ class MMU implements DataSource {
   }
 
   private short _read(int address) {
+    // Handle joypad data
+    if (address == 0xFF00) {
+      short joypadState = Joypad.getState(mem[address]);
+      // Util.log("MMU - from Joypad: " + Util.bin(joypadState));
+      return joypadState;
+    }
+
     return mem[address];
   }
 

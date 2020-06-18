@@ -1,4 +1,6 @@
-run: Tester.class test.gb
+build: Tester.class test.gb
+
+run: build
 	java -cp src/ Tester
 
 Tester.class: src/*.class
