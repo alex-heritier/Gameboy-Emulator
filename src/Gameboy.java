@@ -5,6 +5,15 @@ import java.util.Collections;
 import java.util.StringTokenizer;
 
 class Gameboy {
+  public static enum TestStatus {
+    RUNNING,
+    PASSED,
+    FAILED,
+    TIMEOUT
+  }
+
+  private static final int SERIAL_BUFFER_LIMIT = 4096;
+
   private CPUState state;
   private ClockCounter clockCounter;
   private CPU cpu;
@@ -18,13 +27,26 @@ class Gameboy {
   private ArrayList<Integer> watchpoints;
   private boolean step;
   private long tickCounter = 0;
+  private StringBuilder serialOutput;
+  private TestStatus testStatus;
 
   public Gameboy(Cart cart) {
+    this(cart, null, true);
+  }
+
+  public Gameboy(Cart cart, Screen screen, boolean printSerialToStdout) {
     this.cart = cart;
     this.state = new CPUState();
     this.clockCounter = new ClockCounter();
-    this.mmu = new MMU();
-    this.ppu = new PPU(clockCounter, mmu);
+    this.serialOutput = new StringBuilder();
+    this.testStatus = TestStatus.RUNNING;
+    this.mmu = new MMU(new SerialListener() {
+      @Override
+      public void onSerialWrite(short data) {
+        onSerialWriteByte(data);
+      }
+    }, printSerialToStdout);
+    this.ppu = new PPU(clockCounter, mmu, screen);
     this.cpu = new CPU(state, mmu, cart, clockCounter);
     this.timer = new TimerHandler(mmu, clockCounter);
 
@@ -55,12 +77,53 @@ class Gameboy {
     }
   }
 
+  public TestStatus runUntilSerialResult(long maxTicks) {
+    Util.debug = false;
+    state.setPC(0x100);
+    tickCounter = 0;
+    serialOutput.setLength(0);
+    testStatus = TestStatus.RUNNING;
+
+    while (tickCounter < maxTicks) {
+      tick();
+      if (testStatus == TestStatus.PASSED || testStatus == TestStatus.FAILED)
+        return testStatus;
+    }
+
+    testStatus = TestStatus.TIMEOUT;
+    return testStatus;
+  }
+
+  public String serialOutput() {
+    return serialOutput.toString();
+  }
+
+  public long ticks() {
+    return tickCounter;
+  }
+
+  public TestStatus testStatus() {
+    return testStatus;
+  }
+
   private void tick() {
     // Util.log(".");
     timer.tick();
     cpu.tick();
     ppu.tick();
     this.tickCounter++;
+  }
+
+  private void onSerialWriteByte(short data) {
+    serialOutput.append((char)(data & 0xFF));
+    if (serialOutput.length() > SERIAL_BUFFER_LIMIT) {
+      int trimTo = serialOutput.length() - SERIAL_BUFFER_LIMIT;
+      serialOutput.delete(0, trimTo);
+    }
+
+    String out = serialOutput.toString().toLowerCase();
+    if (out.contains("failed")) testStatus = TestStatus.FAILED;
+    else if (out.contains("passed")) testStatus = TestStatus.PASSED;
   }
 
 

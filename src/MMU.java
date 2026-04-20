@@ -16,11 +16,19 @@ class MMU implements DataSource {
   // romBank01;     4000 - 7FFF, bankable
   // romBank00;     0000 - 3FFF
   private short[] mem;
+  private SerialListener serialListener;
+  private boolean printSerialToStdout;
 
   public int lastAccessed;
 
 
   public MMU() {
+    this(null, true);
+  }
+
+  public MMU(SerialListener serialListener, boolean printSerialToStdout) {
+    this.serialListener = serialListener;
+    this.printSerialToStdout = printSerialToStdout;
     mem = new short[0xFFFF + 1];
     init();
   }
@@ -112,7 +120,10 @@ class MMU implements DataSource {
     // Log Link Cable writes
     if (address == 0xFF02 && value == 0x81) {
       short data = get(0xFF01);
-      System.out.print((char)data);
+      if (serialListener != null)
+        serialListener.onSerialWrite(data);
+      if (printSerialToStdout)
+        System.out.print((char)data);
     }
 
     // DIV timer

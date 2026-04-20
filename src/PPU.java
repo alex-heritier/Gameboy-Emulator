@@ -60,9 +60,14 @@ class PPU {
   private int mode;           // The LCD's current mode
 
   public PPU(ClockCounter clockCounter, MMU mmu) {
+    this(clockCounter, mmu, null);
+  }
+
+  public PPU(ClockCounter clockCounter, MMU mmu, Screen screen) {
     this.clockCounter = clockCounter;
     this.mmu = mmu;
-    this.screen = new BasicScreen(mmu, this);
+    if (screen == null) this.screen = new BasicScreen(mmu, this);
+    else this.screen = screen;
     this.lastClockCount = clockCounter.count();
     reset();
   }
