@@ -60,7 +60,7 @@ class BasicScreen implements Screen {
     gamePanel.setFocusable(true);
     gamePanel.addKeyListener(new GameKeyListener());
 
-    this.status = new JLabel("Arrows=D-Pad  Z=A  X=B  Enter=Start  Shift=Select  M=Mute");
+    this.status = new JLabel("WASD/Arrows=D-Pad  J/Z=A  K/X=B  Enter=Start  Shift=Select  M=Mute");
     this.status.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
     this.status.setOpaque(true);
     this.status.setBackground(new Color(240, 240, 240));
@@ -125,8 +125,14 @@ class BasicScreen implements Screen {
       case KeyEvent.VK_RIGHT: return Joypad.Button.RIGHT;
       case KeyEvent.VK_UP:    return Joypad.Button.UP;
       case KeyEvent.VK_DOWN:  return Joypad.Button.DOWN;
+      case KeyEvent.VK_A:     return Joypad.Button.LEFT;
+      case KeyEvent.VK_D:     return Joypad.Button.RIGHT;
+      case KeyEvent.VK_W:     return Joypad.Button.UP;
+      case KeyEvent.VK_S:     return Joypad.Button.DOWN;
       case KeyEvent.VK_Z:     return Joypad.Button.A;
+      case KeyEvent.VK_J:     return Joypad.Button.A;
       case KeyEvent.VK_X:     return Joypad.Button.B;
+      case KeyEvent.VK_K:     return Joypad.Button.B;
       case KeyEvent.VK_ENTER: return Joypad.Button.START;
       case KeyEvent.VK_SHIFT: return Joypad.Button.SELECT;
       default: return null;
