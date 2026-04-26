@@ -1,165 +1,145 @@
 
-import java.util.HashMap;
-
+/**
+ * CPU register file and status flags for the Sharp LR35902.
+ *
+ * Register values are stored as ints (0..0xFF for 8-bit, 0..0xFFFF for
+ * 16-bit) to sidestep Java's signed {@code short} quirks while still
+ * returning {@code short} from the accessors used by the rest of the
+ * emulator.
+ */
 class CPUState {
 
-  public enum Flag {
-    Z,  // zero
-    N,  // add/sub
-    H,  // half carry
-    C   // carry
-  };
+  public enum Flag { Z, N, H, C }
 
-  public enum R { // registers
+  public enum R {
     A, F,
     B, C,
     D, E,
     H, L,
-    SP_0, SP_1, // 16 bit register, so two parts
-    PC_0, PC_1  // same
+    SP_0, SP_1,   // SP high, SP low
+    PC_0, PC_1,   // PC high, PC low
   }
 
-  private HashMap<R, Short> registers;
-  private boolean IME;  // Interrupt Master Enable
+  private int a, b, c, d, e, f, h, l;
+  private int sp, pc;
+  private boolean ime;
   private boolean halted;
+  // Becomes true the cycle AFTER an EI instruction; triggers the IME set.
+  private boolean eiPending;
+  // True when a HALT instruction was executed while IME=0 and (IE & IF) != 0.
+  // The next instruction byte read will be read twice (PC stays put for one op).
+  private boolean haltBug;
 
   public CPUState() {
-    registers = new HashMap<R, Short>();
-    IME = false;
-    halted = false;
-
-    registers.put(R.A, (short)0);
-    registers.put(R.F, (short)0);
-    registers.put(R.B, (short)0);
-    registers.put(R.C, (short)0);
-    registers.put(R.D, (short)0);
-    registers.put(R.E, (short)0);
-    registers.put(R.H, (short)0);
-    registers.put(R.L, (short)0);
-    registers.put(R.SP_0, (short)0);
-    registers.put(R.SP_1, (short)0);
-    registers.put(R.PC_0, (short)0);
-    registers.put(R.PC_1, (short)0);
-
-    // Initial state
-    // AF = 1180
-    // BC = 0000
-    // DE = FF56
-    // HL = 000D
-    // SP = FFFE
-    // Z flag = 1
-    setReg16(R.A, R.F, 0x1180); // sets zero flag too
-    setReg16(R.B, R.C, 0x0000);
-    setReg16(R.D, R.E, 0xFF56);
-    setReg16(R.H, R.L, 0x0000);
-    setReg16(R.SP_0, R.SP_1, 0xFFFE);
+    // Values after the DMG boot ROM completes.
+    a  = 0x01;
+    f  = 0xB0;
+    b  = 0x00;
+    c  = 0x13;
+    d  = 0x00;
+    e  = 0xD8;
+    h  = 0x01;
+    l  = 0x4D;
+    sp = 0xFFFE;
+    pc = 0x0100;
   }
 
-  public boolean IME() { return IME; }
-  public void IME(boolean value) { IME = value; }
+  public boolean IME() { return ime; }
+  public void IME(boolean value) { ime = value; }
 
   public boolean isHalted() { return halted; }
   public void setHalted(boolean value) { halted = value; }
 
-  /*
-   * Register helpers
-   */
+  public boolean eiPending() { return eiPending; }
+  public void setEiPending(boolean value) { eiPending = value; }
 
-  // 8 bit manipulators
-  public short getReg(R reg) { return registers.get(reg); }
+  public boolean haltBug() { return haltBug; }
+  public void setHaltBug(boolean value) { haltBug = value; }
+
+  public short getReg(R reg) {
+    switch (reg) {
+      case A: return (short)(a & 0xFF);
+      case F: return (short)(f & 0xF0);
+      case B: return (short)(b & 0xFF);
+      case C: return (short)(c & 0xFF);
+      case D: return (short)(d & 0xFF);
+      case E: return (short)(e & 0xFF);
+      case H: return (short)(h & 0xFF);
+      case L: return (short)(l & 0xFF);
+      case SP_0: return (short)((sp >> 8) & 0xFF);
+      case SP_1: return (short)(sp & 0xFF);
+      case PC_0: return (short)((pc >> 8) & 0xFF);
+      case PC_1: return (short)(pc & 0xFF);
+    }
+    return 0;
+  }
+
   public void setReg(R reg, short value) {
-    if (value < 0 || value > 0xFF) {
-      Util.errn("CPU.setReg - out of bounds: 0x" + Util.hex(value));
+    int v = value & 0xFF;
+    switch (reg) {
+      case A: a = v; return;
+      case F: f = v & 0xF0; return;
+      case B: b = v; return;
+      case C: c = v; return;
+      case D: d = v; return;
+      case E: e = v; return;
+      case H: h = v; return;
+      case L: l = v; return;
+      case SP_0: sp = ((v & 0xFF) << 8) | (sp & 0xFF); return;
+      case SP_1: sp = (sp & 0xFF00) | (v & 0xFF); return;
+      case PC_0: pc = ((v & 0xFF) << 8) | (pc & 0xFF); return;
+      case PC_1: pc = (pc & 0xFF00) | (v & 0xFF); return;
     }
-
-    if (reg == R.F) value &= 0xF0;  // F's unused bits can't be set
-
-    registers.put(reg, value);
   }
 
-  // 16 bit manipulators
-  public int getReg16(R reg1, R reg2) { return CPUMath.word(getReg(reg1), getReg(reg2)); }
+  public int getReg16(R reg1, R reg2) {
+    return ((getReg(reg1) & 0xFF) << 8) | (getReg(reg2) & 0xFF);
+  }
+
   public void setReg16(R reg1, R reg2, int word) {
-    if (word < 0 || word > 0xFFFF) {
-      Util.errn("CPU.setReg16 - out of bounds: 0x" + Util.hex(word));
-      return;
-    }
-    short bytes[] = CPUMath.toBytes(word);
-    setReg16(reg1, reg2, bytes[0], bytes[1]);
+    word &= 0xFFFF;
+    setReg(reg1, (short)((word >> 8) & 0xFF));
+    setReg(reg2, (short)(word & 0xFF));
   }
+
   public void setReg16(R reg1, R reg2, short a, short b) {
     setReg(reg1, a);
     setReg(reg2, b);
   }
 
-  // PC manipulators
-  public int PC() { return getReg16(CPUState.R.PC_0, CPUState.R.PC_1); }
-  public void incPC() { setPC(CPUMath.inc16(PC())); }
-  public void decPC() { setPC(CPUMath.dec16(PC())); }
-  public void setPC(int word) {
-    setReg16(CPUState.R.PC_0, CPUState.R.PC_1, word);
+  public int PC() { return pc & 0xFFFF; }
+  public void setPC(int word) { pc = word & 0xFFFF; }
+  public void incPC() { pc = (pc + 1) & 0xFFFF; }
+  public void decPC() { pc = (pc - 1) & 0xFFFF; }
+
+  public int SP() { return sp & 0xFFFF; }
+  public void setSP(int word) { sp = word & 0xFFFF; }
+  public void incSP() { sp = (sp + 1) & 0xFFFF; }
+  public void decSP() { sp = (sp - 1) & 0xFFFF; }
+
+  public boolean getFlag(Flag flag) {
+    switch (flag) {
+      case Z: return (f & 0x80) != 0;
+      case N: return (f & 0x40) != 0;
+      case H: return (f & 0x20) != 0;
+      case C: return (f & 0x10) != 0;
+    }
+    return false;
   }
 
-  // SP manipulators
-  public int SP() { return getReg16(CPUState.R.SP_0, CPUState.R.SP_1); }
-  public void incSP() { setSP(CPUMath.inc16(SP())); }
-  public void decSP() { setSP(CPUMath.dec16(SP())); }
-  public void setSP(int word) {
-    setReg16(CPUState.R.SP_0, CPUState.R.SP_1, word);
+  public void setFlag(Flag flag, boolean value) {
+    int mask;
+    switch (flag) {
+      case Z: mask = 0x80; break;
+      case N: mask = 0x40; break;
+      case H: mask = 0x20; break;
+      case C: mask = 0x10; break;
+      default: return;
+    }
+    if (value) f |= mask;
+    else       f &= ~mask;
+    f &= 0xF0;
   }
 
-
-  /*
-  * Flag helpers
-  */
-  public void setFlag(CPUState.Flag flag, boolean value) {
-    short newFlags = 0;
-
-    short currentFlags = getReg(CPUState.R.F);
-    if (flag == CPUState.Flag.Z) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x80).get8();
-      else        newFlags = CPUMath.and8(currentFlags, (short)0x7F).get8();
-    }
-    else if (flag == CPUState.Flag.N) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x40).get8();
-      else        newFlags = CPUMath.and8(currentFlags, (short)0xBF).get8();
-    }
-    else if (flag == CPUState.Flag.H) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x20).get8();
-      else        newFlags = CPUMath.and8(currentFlags, (short)0xDF).get8();
-    }
-    else if (flag == CPUState.Flag.C) {
-      if (value)  newFlags = CPUMath.or8(currentFlags, (short)0x10).get8();
-      else        newFlags = CPUMath.and8(currentFlags, (short)0xEF).get8();
-    }
-
-    setReg(CPUState.R.F, newFlags);
-  }
-
-  public boolean getFlag(CPUState.Flag flag) {
-    boolean val = false;
-
-    short currentFlags = getReg(CPUState.R.F);
-    if (flag == CPUState.Flag.Z) {
-      val = CPUMath.and8(currentFlags, (short)0x80).get8() > 0;
-    }
-    else if (flag == CPUState.Flag.N) {
-      val = CPUMath.and8(currentFlags, (short)0x40).get8() > 0;
-    }
-    else if (flag == CPUState.Flag.H) {
-      val = CPUMath.and8(currentFlags, (short)0x20).get8() > 0;
-    }
-    else if (flag == CPUState.Flag.C) {
-      val = CPUMath.and8(currentFlags, (short)0x10).get8() > 0;
-    }
-    else {
-      Util.errn("CPUState.getFlag - bad flag " + flag);
-    }
-
-    return val;
-  }
-
-  public void resetFlags() {
-    setReg(CPUState.R.F, (short)0);  // set all flags to 0
-  }
+  public void resetFlags() { f = 0; }
 }

@@ -1,161 +1,132 @@
 
+/**
+ * 8- and 16-bit ALU helpers that also compute the Game Boy flag effects.
+ *
+ * Arithmetic operations return a {@link Result} carrying the reduced
+ * value plus Z/N/H/C flags; the caller applies only the flags it needs.
+ */
 class CPUMath {
-
   private CPUMath() {}
 
-  // General helpers
   public static short[] toBytes(int word) {
-    short[] bytes = new short[2];
-    bytes[0] = (short)((word & 0xFF00) >> 8);
-    bytes[1] = (short)(word & 0xFF);
-
-    return bytes;
+    return new short[] {
+      (short)((word >> 8) & 0xFF),
+      (short)(word & 0xFF),
+    };
   }
 
-  public static int word(short a, short b) {
-    return (((int)a) << 8) + b;
+  public static int word(short hi, short lo) {
+    return ((hi & 0xFF) << 8) | (lo & 0xFF);
   }
 
-  public static boolean addWillHalfCarry(short a, short b) {
-    return (((a & 0xF) + (b & 0xF)) & 0x10) == 0x10;
+  // --- logic ------------------------------------------------------------
+  public static Result or8(short a, short b) {
+    int r = (a & 0xFF) | (b & 0xFF);
+    return new Result(r, r == 0, false, false, false);
   }
 
-  public static boolean subWillHalfCarry(short a, short b) {
-    return ((a & 0xF) - (b & 0xF)) < 0;
+  public static Result xor8(short a, short b) {
+    int r = (a & 0xFF) ^ (b & 0xFF);
+    return new Result(r, r == 0, false, false, false);
   }
 
-  public static boolean subWillCarry(short a, short b) {
-    return a < b;
+  public static Result and8(short a, short b) {
+    int r = (a & 0xFF) & (b & 0xFF);
+    return new Result(r, r == 0, false, true, false);
   }
 
-
-  // Logic functions
-  public static Result or8(short byte1, short byte2) {
-    short result = (short)(byte1 | byte2);
-    return new Result(result, result == 0, false, false, false);
-  }
-
-  public static Result xor8(short byte1, short byte2) {
-    short result = (short)(byte1 ^ byte2);
-    return new Result(result, result == 0, false, false, false);
-  }
-
-  public static Result and8(short byte1, short byte2) {
-    short result = (short)(byte1 & byte2);
-    return new Result(result, result == 0, false, false, false);
-  }
-
-
-  // Bit manipulation
+  // --- bit manipulation -------------------------------------------------
   public static int getBit(short value, int n) {
     if (n < 0 || n > 7) return 0;
-
-    short bitmask = (short)(1 << n);
-    return (value & bitmask) >> n;
+    return ((value & 0xFF) >> n) & 1;
   }
 
   public static short setBit(short value, int n) {
-    if (n < 0 || n > 7) return 0;
-
-    short bitmask = (short)(1 << n);
-    return (short)(value | bitmask);
+    if (n < 0 || n > 7) return (short)(value & 0xFF);
+    return (short)((value | (1 << n)) & 0xFF);
   }
 
   public static short resetBit(short value, int n) {
-    if (n < 0 || n > 7) return 0;
-
-    short bitmask = (short)(1 << n);
-    return (short)((value | bitmask) ^ bitmask);
+    if (n < 0 || n > 7) return (short)(value & 0xFF);
+    return (short)((value & ~(1 << n)) & 0xFF);
   }
 
-
-
-  // Arithmetic functions
+  // --- arithmetic -------------------------------------------------------
   public static Result inc8(short value) { return add8(value, (short)1); }
-
-  public static int inc16(int word) { return add16(word, 1); }
-  public static int inc16(short byte1, short byte2) {
-    int word = word(byte1, byte2);
-    return inc16(word);
-  }
-
   public static Result dec8(short value) { return sub8(value, (short)1); }
 
-  public static int dec16(int word) { return sub16(word, 1); }
-  public static int dec16(short byte1, short byte2) {
-    int word = word(byte1, byte2);
-    return dec16(word);
+  public static int inc16(int word) { return (word + 1) & 0xFFFF; }
+  public static int dec16(int word) { return (word - 1) & 0xFFFF; }
+  public static int inc16(short hi, short lo) { return inc16(word(hi, lo)); }
+  public static int dec16(short hi, short lo) { return dec16(word(hi, lo)); }
+
+  public static Result add8(short a, short b) {
+    int x = a & 0xFF;
+    int y = b & 0xFF;
+    int sum = x + y;
+    int result = sum & 0xFF;
+    boolean h = ((x & 0xF) + (y & 0xF)) > 0xF;
+    boolean c = sum > 0xFF;
+    return new Result(result, result == 0, false, h, c);
   }
 
-  public static Result add8(short byte1, short byte2) {
-    short result = (short)(byte1 + byte2);
-    result &= 0xFF; // handle 8 bit overflow
-
-    boolean z = result == 0;
-    boolean n = true;
-    boolean h = (((byte1 & 0xF) + (byte2 & 0xF)) & 0x10) == 0x10;
-     // result is less than original numbers? must be overflow
-    boolean c = result < byte1 || result < byte2;
-
-    return new Result(result, z, n, h, c);
+  public static Result adc8(short a, short b, boolean carryIn) {
+    int x = a & 0xFF;
+    int y = b & 0xFF;
+    int cin = carryIn ? 1 : 0;
+    int sum = x + y + cin;
+    int result = sum & 0xFF;
+    boolean h = ((x & 0xF) + (y & 0xF) + cin) > 0xF;
+    boolean c = sum > 0xFF;
+    return new Result(result, result == 0, false, h, c);
   }
 
-  public static int add16(int word1, int word2) {
-    int result = word1 + word2;
-    result &= 0xFFFF;
-    return result;
+  public static Result sub8(short a, short b) {
+    int x = a & 0xFF;
+    int y = b & 0xFF;
+    int diff = x - y;
+    int result = diff & 0xFF;
+    boolean h = (x & 0xF) < (y & 0xF);
+    boolean c = x < y;
+    return new Result(result, result == 0, true, h, c);
   }
 
-  public static Result sub8(short byte1, short byte2) {
-    short result = (short)(byte1 - byte2);
-    result &= 0xFF;
-
-    boolean z = result == 0;
-    boolean n = true;
-    // if lower nibble 1 < lower nibble 2, half carry occurred
-    boolean h = (byte1 & 0xF) < (byte2 & 0xF);
-    boolean c = byte1 < byte2;
-
-    return new Result(result, z, n, h, c);
+  public static Result sbc8(short a, short b, boolean carryIn) {
+    int x = a & 0xFF;
+    int y = b & 0xFF;
+    int cin = carryIn ? 1 : 0;
+    int diff = x - y - cin;
+    int result = diff & 0xFF;
+    boolean h = ((x & 0xF) - (y & 0xF) - cin) < 0;
+    boolean c = diff < 0;
+    return new Result(result, result == 0, true, h, c);
   }
 
-  public static int sub16(int word1, int word2) {
-    int result = word1 - word2;
-    result &= 0xFFFF;  // 16 bit underflow
-    return result;
+  public static int add16(int a, int b) { return (a + b) & 0xFFFF; }
+  public static int sub16(int a, int b) { return (a - b) & 0xFFFF; }
+
+  public static Result add16Flags(int a, int b) {
+    int sum = a + b;
+    boolean h = ((a & 0x0FFF) + (b & 0x0FFF)) > 0x0FFF;
+    boolean c = sum > 0xFFFF;
+    return new Result(sum & 0xFFFF, false, false, h, c);
   }
 
-
-  public static void main(String args[]) {
-    short arg1 = (short)0xCD;
-    short arg2 = (short)0x08;
-
-    Result result = add8(arg1, arg2);
-
-    Util.log("arg1 == " + Util.bin(arg1));
-    Util.log("arg2 == " + Util.bin(arg2));
-    Util.log("### Results");
-    Util.log(result.toString());
-
-    /*
-    short num = add8(arg1, arg2);
-
-    Util.log("num:  " + Util.hex(num));
-    */
+  /** ADD SP, r8 / LD HL, SP+r8 flag computation. */
+  public static Result addSp(int sp, byte offset) {
+    int result = (sp + offset) & 0xFFFF;
+    int u = offset & 0xFF;
+    boolean h = ((sp & 0x0F) + (u & 0x0F)) > 0x0F;
+    boolean c = ((sp & 0xFF) + u) > 0xFF;
+    return new Result(result, false, false, h, c);
   }
 
-
-  /*
-   * Represents the result of a math operation
-   * Returns the value (either 8 or 16 bit) of the result along with flag states
+  /**
+   * Represents the result of a math operation.
    */
   public static class Result {
-
-    private int result;
-    private boolean z;
-    private boolean n;
-    private boolean h;
-    private boolean c;
+    private final int result;
+    private final boolean z, n, h, c;
 
     public Result(int result, boolean z, boolean n, boolean h, boolean c) {
       this.result = result;
@@ -165,38 +136,25 @@ class CPUMath {
       this.c = c;
     }
 
-    public short get8() { return (short)(result & 0xFF); } // force result to 8 bits
-    public int get16() { return result & 0xFFFF; }  // force result to 16 bits
+    public short get8() { return (short)(result & 0xFF); }
+    public int get16() { return result & 0xFFFF; }
 
     public boolean getFlag(CPUState.Flag flag) {
-      boolean ret = false;
       switch (flag) {
-        case Z:
-          ret = z;
-          break;
-        case N:
-          ret = n;
-          break;
-        case H:
-          ret = h;
-          break;
-        case C:
-          ret = c;
-          break;
+        case Z: return z;
+        case N: return n;
+        case H: return h;
+        case C: return c;
       }
-      return ret;
+      return false;
     }
 
     public String toString() {
-      String str = "";
-
-      str += Util.hex(get16());
-      str += "\nZ: " + (z ? 1 : 0);
-      str += "\nN: " + (n ? 1 : 0);
-      str += "\nH: " + (h ? 1 : 0);
-      str += "\nC: " + (c ? 1 : 0);
-
-      return str;
+      return "value=" + Util.hex(get16()) +
+             " Z=" + (z ? 1 : 0) +
+             " N=" + (n ? 1 : 0) +
+             " H=" + (h ? 1 : 0) +
+             " C=" + (c ? 1 : 0);
     }
   }
 }

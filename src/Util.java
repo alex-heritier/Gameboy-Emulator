@@ -1,7 +1,7 @@
 
 class Util {
 
-  public static boolean debug = true;
+  public static boolean debug = false;
 
   public static String hex(byte z) {
     return String.format("%02X", z);

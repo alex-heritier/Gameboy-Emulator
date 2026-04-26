@@ -1,17 +1,20 @@
 
+/**
+ * Implementation of the 256-entry CB-prefixed opcode table.
+ *
+ * Most operations are 2 M-cycles (register) or 4 M-cycles (via
+ * {@code (HL)}); {@code BIT n, (HL)} is an exception at 3 M-cycles.
+ */
 class CBInstructions {
-  private CPUState state;
-  private MMU mmu;
-  private ClockCounter clockCounter;
+  private final CPUState state;
+  private final MMU mmu;
+  private final ClockCounter clockCounter;
 
-  private CPUState.R bitHelpers[] = {
-    CPUState.R.B,
-    CPUState.R.C,
-    CPUState.R.D,
-    CPUState.R.E,
-    CPUState.R.H,
-    CPUState.R.L,
-    CPUState.R.B, // placeholder for [HL]
+  private static final CPUState.R[] OPERANDS = {
+    CPUState.R.B, CPUState.R.C,
+    CPUState.R.D, CPUState.R.E,
+    CPUState.R.H, CPUState.R.L,
+    null,
     CPUState.R.A,
   };
 
@@ -20,501 +23,160 @@ class CBInstructions {
     this.mmu = mmu;
     this.clockCounter = clockCounter;
   }
-  private CBInstructions() {
-  }
 
-  public void handle(short instruction) {
-    int bit3 = CPUMath.getBit(instruction, 3);
-
-    clockCounter.add(2);
-
-    // 0x00 - 0x0F
-    if (instruction >= 0 && instruction < 0x10) { // RLC / RRC
-      if (bit3 == 0)
-        rlc(instruction);
-      else
-        rrc(instruction);
-    }
-
-    // 0x10 - 0x1F
-    else if (instruction >= 0x10 && instruction < 0x20) { // RL / RR
-      if (bit3 == 0)
-        rl(instruction);
-      else
-        rr(instruction);
-    }
-
-    // 0x20 - 0x2F
-    else if (instruction >= 0x20 && instruction < 0x30) { // SLA / SRA
-      if (bit3 == 0)
-        sla(instruction);
-      else
-        sra(instruction);
-    }
-
-    // 0x30 - 0x3F
-    else if (instruction >= 0x30 && instruction < 0x40) { // SWAP / SRL
-      if (bit3 == 0)
-        swap(instruction);
-      else
-        srl(instruction);
-    }
-
-    // 0x40 - 0x7F
-    else if (instruction >= 0x40 && instruction < 0x80) // BIT
-      bit(instruction);
-
-    // 0x80 - 0xBF
-    else if (instruction >= 0x80 && instruction < 0xC0) // RES
-      res(instruction);
-
-    // 0xC0 - 0xFF
-    else if (instruction >= 0xC0 && instruction <= 0xFF)// SET
-      set(instruction);
-  }
-
-  /*
-   * Good reference for insruction implementation
-   * https://github.com/simias/gb-rs/blob/master/src/cpu/instructions.rs
+  /**
+   * Dispatches a CB-prefixed opcode. The caller ({@link Instructions#CB()})
+   * has already charged the 1 M-cycle for the CB fetch itself; we charge
+   * the remaining cycles here and interleave them with the (HL) read /
+   * write so that memory accesses happen on the right M-cycle boundary
+   * for Blargg's mem_timing test.
+   *
+   * <p>Timings (total M-cycles, CB prefix included):
+   *   <ul>
+   *     <li>CB r          : 2 M (read/write reg on cycle 2)</li>
+   *     <li>BIT n,(HL)    : 3 M (read on cycle 3)</li>
+   *     <li>CB (HL) RMW   : 4 M (read on cycle 3, write on cycle 4)</li>
+   *   </ul>
    */
+  public void handle(short opcode) {
+    int op = opcode & 0xFF;
+    int z = op & 0x7;
+    CPUState.R reg = OPERANDS[z];
+    boolean memory = (reg == null);
+    int high = op >> 3;
+    int block = op >> 6;
 
-  //  - RLC
-  private void rlc(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
+    if (memory) {
+      int address = ((state.getReg(CPUState.R.H) & 0xFF) << 8)
+                    | (state.getReg(CPUState.R.L) & 0xFF);
 
-    if (registerIndex < 0 || registerIndex >= 8) return;
+      if (block == 0x1) {
+        // BIT n, (HL) - 3 M-cycle. CB prefix is cycle 1, opcode fetch is
+        // cycle 2, HL read is cycle 3.
+        clockCounter.add(2);
+        short value = mmu.get(address);
+        int bit = (op >> 3) & 0x7;
+        bit_n(bit, value);
+        return;
+      }
 
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _rlc(address, value);
+      // Read-modify-write on (HL) - 4 M-cycles. Cycle 2 is opcode fetch,
+      // cycle 3 is the read, cycle 4 is the write.
+      clockCounter.add(2);
+      short value = mmu.get(address);
+      value = applyCbOp(high, block, op, value);
+      clockCounter.add(1);
+      mmu.set(address, value);
+      return;
     }
-    // Otherwise get the register index normally
-    else {
-      _rlc(bitHelpers[registerIndex]);
-    }
-  }
 
-  private void _rlc(int address, short value) {
-    short shifted = _rlc(value);
-    writeMem8(address, shifted);
-  }
-  private void _rlc(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short shifted = _rlc(registerValue);
-    state.setReg(reg, shifted);
-  }
-  private short _rlc(short value) {
-    state.setFlag(CPUState.Flag.C, (value & (short)0x80) != 0);
-
-    short shifted = (short)(((value << 1) | (value >> 7)) & 0xFF);
-
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-
-    return shifted;
-  }
-
-  //  - RL
-  private void rl(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _rl(address, value);
-    }
-    // Otherwise get the register index normally
-    else {
-      _rl(bitHelpers[registerIndex]);
-    }
-  }
-
-  private void _rl(int address, short value) {
-    clockCounter.add(2);
-
-    short shifted = _rl(value);
-    writeMem8(address, shifted);
-  }
-  private void _rl(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short shifted = _rl(registerValue);
-    state.setReg(reg, shifted);
-  }
-  private short _rl(short value) {
-    int oldCarry = state.getFlag(CPUState.Flag.C) ? 1 : 0;
-    state.setFlag(CPUState.Flag.C, (value & (short)0x80) != 0);
-
-    short shifted = (short)(((value << 1) | oldCarry) & 0xFF);
-
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-
-    return shifted;
-  }
-
-  //  - RRC
-  private void rrc(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _rrc(address, value);
-    }
-    // Otherwise get the register index normally
-    else {
-      _rrc(bitHelpers[registerIndex]);
-    }
-  }
-
-  private void _rrc(int address, short value) {
-    clockCounter.add(2);
-
-    short shifted = _rrc(value);
-    writeMem8(address, shifted);
-  }
-  private void _rrc(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short shifted = _rrc(registerValue);
-    state.setReg(reg, shifted);
-  }
-  private short _rrc(short value) {
-    state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
-
-    short shifted = (short)(((value >> 1) | (value << 7)) & 0xFF);
-
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-
-    return shifted;
-  }
-
-  //  - RR
-  private void rr(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _rr(address, value);
-    }
-    // Otherwise get the register index normally
-    else {
-      _rr(bitHelpers[registerIndex]);
-    }
-  }
-
-  private void _rr(int address, short value) {
-    clockCounter.add(2);
-
-    short shifted = _rr(value);
-    writeMem8(address, shifted);
-
-  }
-  private void _rr(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short shifted = _rr(registerValue);
-    state.setReg(reg, shifted);
-  }
-  private short _rr(short value) {
-    int oldCarry = state.getFlag(CPUState.Flag.C) ? 1 : 0;
-    state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
-
-    short shifted = (short)(((value >> 1) | (oldCarry << 7)) & 0xFF);
-
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-
-    return shifted;
-  }
-
-  //  - SLA
-  private void sla(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _sla(address, value);
-    }
-    // Otherwise get the register index normally
-    else {
-      _sla(bitHelpers[registerIndex]);
-    }
-  }
-
-  private void _sla(int address, short value) {
-    clockCounter.add(2);
-
-    short shifted = _sla(value);
-    writeMem8(address, shifted);
-  }
-  private void _sla(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short shifted = _sla(registerValue);
-    state.setReg(reg, shifted);
-  }
-  private short _sla(short value) {
-    state.setFlag(CPUState.Flag.C, (value & (short)0x80) != 0);
-
-    short shifted = (short)((value << 1) & 0xFF);
-
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-
-    return shifted;
-  }
-
-  //  - SRA
-  private void sra(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _sra(address, value);
-    }
-    // Otherwise get the register index normally
-    else {
-      _sra(bitHelpers[registerIndex]);
-    }
-  }
-
-  private void _sra(int address, short value) {
-    clockCounter.add(2);
-
-    short shifted = _sra(value);
-    writeMem8(address, shifted);
-  }
-  private void _sra(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short shifted = _sra(registerValue);
-    state.setReg(reg, shifted);
-  }
-  private short _sra(short value) {
-    state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
-
-    // MSB isn't affected
-    short shifted = (short)(((value >> 1) | (value & (short) 0x80)) & 0xFF);
-
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-
-    return shifted;
-  }
-
-  // SWAP
-  private void swap(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _swap(address, value);
-    }
-    // Otherwise get the register index normally
-    else {
-      _swap(bitHelpers[registerIndex]);
-    }
-  }
-
-  private void _swap(int address, short value) {
-    clockCounter.add(2);
-
-    short newValue = _swap(value);
-    writeMem8(address, newValue);
-  }
-  private void _swap(CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short newValue = _swap(registerValue);
-    state.setReg(reg, newValue);
-  }
-  private short _swap(short value) {
-    short newValue = (short)((value << 4 | value >> 4) & 0xFF);
-
-    state.setFlag(CPUState.Flag.Z, value == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-    state.setFlag(CPUState.Flag.C, false);
-
-    return newValue;
-  }
-
-  // SRL
-  private void srl(short instruction) {
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      _srl(address, value);
-    }
-    // Otherwise get the register index normally
-    else {
-      _srl(bitHelpers[registerIndex]);
-    }
-  }
-
-  private void _srl(int address, short value) {
-    clockCounter.add(2);
-
-    state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
-
-    short shifted = (short)((value >> 1) & 0xFF);
-
-    writeMem8(address, shifted);
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-  }
-  private void _srl(CPUState.R reg) {
+    // Register operations - 2 M-cycles total (1 for CB fetch + 1 here).
+    clockCounter.add(1);
     short value = state.getReg(reg);
-    state.setFlag(CPUState.Flag.C, (value & (short)0x01) != 0);
-
-    short shifted = (short)((value >> 1) & 0xFF);
-
-    state.setReg(reg, shifted);
-    state.setFlag(CPUState.Flag.Z, shifted == 0);
-    state.setFlag(CPUState.Flag.N, false);
-    state.setFlag(CPUState.Flag.H, false);
-  }
-
-  //  - BIT N, R
-  private void bit(short instruction) {
-    int bitIndex = (short)((instruction << 2 & 0xFF) >> 5);
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      bit(bitIndex, value);
+    if (block == 0x1) {
+      int bit = (op >> 3) & 0x7;
+      bit_n(bit, value);
+      return;
     }
-    // Otherwise get the register index normally
-    else {
-      bit(bitIndex, bitHelpers[registerIndex]);
+    value = applyCbOp(high, block, op, value);
+    state.setReg(reg, value);
+  }
+
+  private short applyCbOp(int high, int block, int op, short value) {
+    switch (high) {
+      case 0x00: return rlc(value);
+      case 0x01: return rrc(value);
+      case 0x02: return rl(value);
+      case 0x03: return rr(value);
+      case 0x04: return sla(value);
+      case 0x05: return sra(value);
+      case 0x06: return swap(value);
+      case 0x07: return srl(value);
+      default: break;
     }
+    int bit = (op >> 3) & 0x7;
+    if (block == 0x2) return (short)(value & ~(1 << bit) & 0xFF);
+    if (block == 0x3) return (short)((value | (1 << bit)) & 0xFF);
+    return value;
   }
 
-  private void bit(int index, CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    bit(index, registerValue);
+  private short rlc(short v) {
+    int b = v & 0xFF;
+    int bit7 = (b >> 7) & 1;
+    int r = ((b << 1) | bit7) & 0xFF;
+    setShiftFlags(r, bit7);
+    return (short)r;
   }
-  private void bit(int index, short value) {
-    clockCounter.add(2);
 
-    int bit = CPUMath.getBit(value, index);
+  private short rrc(short v) {
+    int b = v & 0xFF;
+    int bit0 = b & 1;
+    int r = ((b >> 1) | (bit0 << 7)) & 0xFF;
+    setShiftFlags(r, bit0);
+    return (short)r;
+  }
 
-    state.setFlag(CPUState.Flag.Z, bit == 0);
+  private short rl(short v) {
+    int b = v & 0xFF;
+    int bit7 = (b >> 7) & 1;
+    int carryIn = state.getFlag(CPUState.Flag.C) ? 1 : 0;
+    int r = ((b << 1) | carryIn) & 0xFF;
+    setShiftFlags(r, bit7);
+    return (short)r;
+  }
+
+  private short rr(short v) {
+    int b = v & 0xFF;
+    int bit0 = b & 1;
+    int carryIn = state.getFlag(CPUState.Flag.C) ? 1 : 0;
+    int r = ((b >> 1) | (carryIn << 7)) & 0xFF;
+    setShiftFlags(r, bit0);
+    return (short)r;
+  }
+
+  private short sla(short v) {
+    int b = v & 0xFF;
+    int bit7 = (b >> 7) & 1;
+    int r = (b << 1) & 0xFF;
+    setShiftFlags(r, bit7);
+    return (short)r;
+  }
+
+  private short sra(short v) {
+    int b = v & 0xFF;
+    int bit0 = b & 1;
+    int bit7 = b & 0x80;
+    int r = ((b >> 1) | bit7) & 0xFF;
+    setShiftFlags(r, bit0);
+    return (short)r;
+  }
+
+  private short srl(short v) {
+    int b = v & 0xFF;
+    int bit0 = b & 1;
+    int r = (b >> 1) & 0xFF;
+    setShiftFlags(r, bit0);
+    return (short)r;
+  }
+
+  private short swap(short v) {
+    int b = v & 0xFF;
+    int r = ((b >> 4) | (b << 4)) & 0xFF;
+    state.resetFlags();
+    state.setFlag(CPUState.Flag.Z, r == 0);
+    return (short)r;
+  }
+
+  private void bit_n(int bit, short value) {
+    boolean bitSet = ((value & 0xFF) & (1 << bit)) != 0;
+    state.setFlag(CPUState.Flag.Z, !bitSet);
     state.setFlag(CPUState.Flag.N, false);
     state.setFlag(CPUState.Flag.H, true);
   }
 
-  //  - RES N, R
-  private void res(short instruction) {
-    int bitIndex = (short)((instruction << 2 & 0xFF) >> 5);
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int address = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(address);
-      res_mem(bitIndex, value, address);
-    }
-    // Otherwise get the register index normally
-    else {
-      res(bitIndex, bitHelpers[registerIndex]);
-    }
-  }
-
-  private void res_mem(int index, short value, int address) {
-    clockCounter.add(2);
-
-    short newValue = CPUMath.resetBit(value, index);
-    writeMem8(address, newValue);
-  }
-  private void res(int index, CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short newValue = CPUMath.resetBit(registerValue, index);
-
-    state.setReg(reg, newValue);
-  }
-
-  //  - SET N, R
-  private void set(short instruction) {
-    int bitIndex = (short)((instruction << 2 & 0xFF) >> 5);
-    int registerIndex = (short)((instruction << 5 & 0xFF) >> 5);
-
-    if (registerIndex < 0 || registerIndex >= 8) return;
-
-    // special case for [HL]
-    if (registerIndex == 6) {
-      int addsets = word(CPUState.R.H, CPUState.R.L);
-      short value = readMem8(addsets);
-      set_mem(bitIndex, value, addsets);
-    }
-    // Otherwise get the register index normally
-    else {
-      set(bitIndex, bitHelpers[registerIndex]);
-    }
-  }
-
-  private void set_mem(int index, short value, int address) {
-    clockCounter.add(2);
-
-    short newValue = CPUMath.setBit(value, index);
-    writeMem8(address, newValue);
-  }
-  private void set(int index, CPUState.R reg) {
-    short registerValue = state.getReg(reg);
-    short newValue = CPUMath.setBit(registerValue, index);
-
-    state.setReg(reg, newValue);
-  }
-
-  // Helpers
-  private short readMem8(int address) {
-    return mmu.get(address);
-  }
-
-  private void writeMem8(int address, short value) {
-    mmu.set(address, value);
-  }
-
-  private int word(CPUState.R reg1, CPUState.R reg2) {
-    return CPUMath.word(state.getReg(reg1), state.getReg(reg2));
+  private void setShiftFlags(int result, int carryOut) {
+    state.resetFlags();
+    state.setFlag(CPUState.Flag.Z, (result & 0xFF) == 0);
+    state.setFlag(CPUState.Flag.C, carryOut != 0);
   }
 }

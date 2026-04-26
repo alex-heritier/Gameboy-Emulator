@@ -1,92 +1,102 @@
 
+/**
+ * DIV / TIMA timer unit.
+ *
+ * <p>The DMG timer is driven by an internal 16-bit counter that ticks
+ * once every T-cycle. The {@code DIV} register is the upper 8 bits of
+ * that counter (so it increments every 256 T-cycles / 64 M-cycles).
+ * TIMA is incremented whenever a specific bit of this counter
+ * transitions from 1 to 0 (the select depends on TAC, see Pan Docs).
+ *
+ * <p>Writing to {@code DIV} resets the full internal counter. Writing
+ * to {@code TAC} can cause a phantom TIMA tick, which this
+ * implementation models via the pre/post falling-edge check.
+ */
 class TimerHandler {
 
-  public static final int DIV = 0xFF04; // incremented 4 times per clock
-  public static final int TIMER_COUNTER = 0xFF05;
-  public static final int TIMER_MODULO = 0xFF06;
-  public static final int TIMER_CONTROL = 0xFF07;
+  public static final int DIV_ADDR = 0xFF04;
+  public static final int TIMA_ADDR = 0xFF05;
+  public static final int TMA_ADDR = 0xFF06;
+  public static final int TAC_ADDR = 0xFF07;
 
-  public static final int DIV_INC_INTERVAL = 256;
+  // Bit index into the internal counter that each TAC select watches.
+  // In M-cycles (14-bit counter, since one M-cycle == 4 T-cycles):
+  //   TAC=00 (4096 Hz)    -> bit 7
+  //   TAC=01 (262144 Hz)  -> bit 1
+  //   TAC=10 (65536 Hz)   -> bit 3
+  //   TAC=11 (16384 Hz)   -> bit 5
+  private static final int[] TAC_FALLING_EDGE_BITS = { 7, 1, 3, 5 };
 
-  private MMU mmu;
-  private ClockCounter clockCounter;
+  private final MMU mmu;
 
-  private int lastClockCount; // The total clock count from last tick()
-  private int clocksSinceLastDiv; // Clocks since DIV was last icremented
-  private int clocksSinceLastIncrement;   // Clock counts since last timer increment
-
+  private int internalCounter;
+  private int tima;
+  private int tma;
+  private int tac;
+  private boolean lastBit;
+  private boolean reloading;
 
   public TimerHandler(MMU mmu, ClockCounter clockCounter) {
     this.mmu = mmu;
-    this.clockCounter = clockCounter;
-    this.lastClockCount = clockCounter.count();
+    clockCounter.addListener(this::step);
   }
 
-  public void tick() {
-    int delta = clockCounter.count() - lastClockCount;
-    lastClockCount = clockCounter.count();
-
-    clocksSinceLastDiv += delta;
-    clocksSinceLastIncrement += delta;
-
-    if (!isTimerOn()) return;
-
-    // Util.log("Clocks since last DIV - " + Util.hex(clocksSinceLastDiv));
-    // Util.log("Clocks since last increment - " + Util.hex(clocksSinceLastIncrement));
-
-    // Increment DIV at the rate of (4.19 megahertz) / (16 384 hertz)
-    if (DIV_INC_INTERVAL <= clocksSinceLastDiv) {
-      clocksSinceLastDiv = clocksSinceLastDiv - DIV_INC_INTERVAL;
-
-      short currentDiv = mmu.get(DIV);
-      mmu.forceSet(DIV, (short)((currentDiv + 1) & 0xFF));
+  private void step() {
+    if (reloading) {
+      tima = tma & 0xFF;
+      mmu.raiseInterrupt(MMU.TIMER);
+      reloading = false;
     }
 
-    // Increment TIMER_COUNTER based on TIMER_CONTROL's clock rate
-    short timerClockRate = getTimerIncrementInterval();
-    short currentTimerCounter = mmu.get(TIMER_COUNTER);
-    short newTimerCounter = currentTimerCounter;
+    internalCounter = (internalCounter + 1) & 0x3FFF;
+    mmu.forceSet(DIV_ADDR, (short)((internalCounter >> 6) & 0xFF));
 
-    // Check if it's time to increment timer
-    if (timerClockRate <= clocksSinceLastIncrement) {
-      clocksSinceLastIncrement = clocksSinceLastIncrement - timerClockRate;
-      newTimerCounter = (short)((currentTimerCounter + 1) & 0xFF);
+    boolean newBit = tacBit();
+    if (lastBit && !newBit) incrementTima();
+    lastBit = newBit;
+  }
 
-      // Check for overflow
-      if (newTimerCounter == 0) {
-        short timerModulo = mmu.get(TIMER_MODULO);
-        newTimerCounter = timerModulo;
+  private boolean tacBit() {
+    boolean enabled = (tac & 0x04) != 0;
+    if (!enabled) return false;
+    int bit = TAC_FALLING_EDGE_BITS[tac & 0x3];
+    return ((internalCounter >> bit) & 1) != 0;
+  }
 
-        mmu.raiseInterrupt(2);
-      }
-
-      mmu.set(TIMER_COUNTER, newTimerCounter);
+  private void incrementTima() {
+    tima = (tima + 1) & 0xFF;
+    if (tima == 0) {
+      reloading = true;
     }
   }
 
-  private boolean isTimerOn() {
-    short status = mmu.get(TIMER_CONTROL);
-    return CPUMath.getBit(status, 2) > 0;
+  public short readDiv()  { return (short)((internalCounter >> 6) & 0xFF); }
+  public short readTima() { return (short)(tima & 0xFF); }
+  public short readTma()  { return (short)(tma & 0xFF); }
+  public short readTac()  { return (short)(0xF8 | (tac & 0x07)); }
+
+  public void writeDiv(short v) {
+    internalCounter = 0;
+    mmu.forceSet(DIV_ADDR, (short)0);
+    boolean newBit = tacBit();
+    if (lastBit && !newBit) incrementTima();
+    lastBit = newBit;
   }
 
-  // Returns the number of clocks between increments
-  public short getTimerIncrementInterval() {
-    short clockSelect = mmu.get(TIMER_CONTROL);
-    return getTimerIncrementInterval(clockSelect);
+  public void writeTima(short v) {
+    tima = v & 0xFF;
+    reloading = false;
   }
-  public static short getTimerIncrementInterval(short clockSelect) {
-    clockSelect = (short)(clockSelect & 3);
 
-    short incInterval = 0;
-    switch (clockSelect) {
-      case 0: incInterval = 1023; break;  // (4.19 megahertz) / (4096 hertz)
-      case 1: incInterval = 16; break;    // (4.19 megahertz) / (262 144 hertz)
-      case 2: incInterval = 64; break;    // (4.19 megahertz) / (65 536 hertz)
-      case 3: incInterval = 256; break;   // (4.19 megahertz) / (16 384 hertz)
-      default:
-        Util.errn("TimerHandler.getTimerIncrementInterval - Bad timer control value.");
-        break;
-    }
-    return incInterval;
+  public void writeTma(short v) {
+    tma = v & 0xFF;
+  }
+
+  public void writeTac(short v) {
+    tac = v & 0x07;
+    mmu.forceSet(TAC_ADDR, (short)(0xF8 | tac));
+    boolean newBit = tacBit();
+    if (lastBit && !newBit) incrementTima();
+    lastBit = newBit;
   }
 }

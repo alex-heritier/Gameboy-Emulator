@@ -1,590 +1,345 @@
 
+/**
+ * Picture processing unit.
+ *
+ * <p>Drives the LCD state machine (OAM scan -> pixel transfer -> HBlank
+ * -> VBlank), raises VBlank / STAT interrupts, and paints each visible
+ * scanline into the attached {@link Screen}.
+ *
+ * <p>Timing is in M-cycles (1 M == 4 dots):
+ *   Mode 2 (OAM scan)      20
+ *   Mode 3 (pixel xfer)    43
+ *   Mode 0 (HBlank)        51
+ *   Total per scanline     114
+ *   Mode 1 (VBlank)        10 scanlines of 114
+ *
+ * <p>Exposes {@link #readLY()}, {@link #readStat()}, {@link #writeStat(short)}
+ * which are called by the MMU so that disabling the LCD resets the PPU
+ * in a deterministic way and writes to STAT cannot clobber read-only
+ * bits.
+ */
 class PPU {
 
-  // Screen dimensions
-  public static final int VIDEO_WIDTH = 256;
-  public static final int VIDEO_HEIGHT = 256;
   public static final int SCREEN_WIDTH = 160;
   public static final int SCREEN_HEIGHT = 144;
   public static final int SCALE = 3;
-  public static final int SCALED_VIDEO_WIDTH = VIDEO_WIDTH * SCALE;
-  public static final int SCALED_VIDEO_HEIGHT = VIDEO_WIDTH * SCALE;
   public static final int SCALED_SCREEN_WIDTH = SCREEN_WIDTH * SCALE;
   public static final int SCALED_SCREEN_HEIGHT = SCREEN_HEIGHT * SCALE;
 
-  // Video register addresses
   public static final int OAM = 0xFE00;
-  public static final int JOYPAD = 0xFF00;
-  public static final int LCDC_CONTROL = 0xFF40;
-  public static final int LCDC_STATUS = 0xFF41;
+  public static final int LCDC = 0xFF40;
+  public static final int STAT = 0xFF41;
   public static final int SCY = 0xFF42;
   public static final int SCX = 0xFF43;
-  public static final int LY = 0xFF44;  // 0 - 0x99
-  public static final int LYC = 0xFF45; // when LY == LYC, trigger
-  public static final int DMA = 0xFF46;
-  public static final int BG_PALETTE = 0xFF47;
-  public static final int WINDOW_PALETTE = BG_PALETTE;
-  public static final int OBJ_PALETTE_0 = 0xFF48;
-  public static final int OBJ_PALETTE_1 = 0xFF49;
-  public static final int WINDOW_Y_POSITION = 0xFF4A;
-  public static final int WINDOW_X_POSITION = 0xFF4B; // really window.x - 7
+  public static final int LY = 0xFF44;
+  public static final int LYC = 0xFF45;
+  public static final int BGP = 0xFF47;
+  public static final int OBP0 = 0xFF48;
+  public static final int OBP1 = 0xFF49;
+  public static final int WY = 0xFF4A;
+  public static final int WX = 0xFF4B;
 
-  // LCD colors
-  public static final int COLOR_BLACK       = 0x00;
-  public static final int COLOR_DARK_GREY   = 0x77;
-  public static final int COLOR_LIGHT_GREY  = 0xCC;
-  public static final int COLOR_WHITE       = 0xFF;
-  public static final int TRANSPARENT = -1;
+  public static final int COLOR_BLACK     = 0x00;
+  public static final int COLOR_DARK_GREY = 0x55;
+  public static final int COLOR_LIGHT_GREY= 0xAA;
+  public static final int COLOR_WHITE     = 0xFF;
+  public static final int TRANSPARENT     = -1;
 
-  // LCD mode clock counts
-  public static final int MODE_0_CC = 202 / 4;    // H-Blank
-  public static final int MODE_1_CC = 4560 / 4;   // V-Blank
-  public static final int MODE_2_CC = 82 / 4;     // Reading from OAM
-  public static final int MODE_3_CC = 172 / 4;    // Transferring data to LCD
-  public static final int SCANLINE_CC = (MODE_0_CC + MODE_2_CC + MODE_3_CC) / 4;
+  // Mode lengths expressed in M-cycles.
+  private static final int MODE_2_CYCLES = 20;
+  private static final int MODE_3_CYCLES = 43;
+  private static final int MODE_0_CYCLES = 51;
+  private static final int SCANLINE_CYCLES = MODE_2_CYCLES + MODE_3_CYCLES + MODE_0_CYCLES; // 114
+  private static final int VBLANK_LINES = 10;
+  private static final int TOTAL_LINES = 154;
 
-  // LCD mode codes
-  public static final int MODE_0 = 0; // H-Blank
-  public static final int MODE_1 = 1; // V-Blank
-  public static final int MODE_2 = 2; // Reading from OAM
-  public static final int MODE_3 = 3; // Transferring to LCD
+  public static final int MODE_0 = 0;
+  public static final int MODE_1 = 1;
+  public static final int MODE_2 = 2;
+  public static final int MODE_3 = 3;
 
-
-  private MMU mmu;
-  private ClockCounter clockCounter;
+  private final MMU mmu;
   private Screen screen;
 
-  // Timing variables
-  private int lastClockCount; // The ClockCounter's clock count as of last tick()
-  private int modeCounter;    // The tick's spent in current mode
-  private int mode;           // The LCD's current mode
+  private int cycleInLine;
+  private int ly;
+  private int mode;
+  private boolean lastStatLine;
+  private int windowLineCounter;
 
-  public PPU(ClockCounter clockCounter, MMU mmu) {
-    this(clockCounter, mmu, null);
-  }
+  public PPU(ClockCounter clockCounter, MMU mmu) { this(clockCounter, mmu, null); }
 
   public PPU(ClockCounter clockCounter, MMU mmu, Screen screen) {
-    this.clockCounter = clockCounter;
     this.mmu = mmu;
-    if (screen == null) this.screen = new BasicScreen(mmu, this);
-    else this.screen = screen;
-    this.lastClockCount = clockCounter.count();
+    this.screen = (screen != null) ? screen : new HeadlessScreen();
+    clockCounter.addListener(this::tick);
     reset();
   }
 
-  public int getMode() { return this.mode; }
+  public void setScreen(Screen screen) { this.screen = screen; }
+  public int getMode() { return mode; }
 
   private void reset() {
-    this.modeCounter = 0;
-    this.mode = MODE_2;
+    cycleInLine = 0;
+    ly = 0;
+    mode = MODE_2;
+    lastStatLine = false;
+    windowLineCounter = 0;
+  }
+
+  public short readLY() { return (short)(ly & 0xFF); }
+
+  public short readStat() {
+    int stat = mmu.forceGet(STAT) & 0xFF;
+    stat &= 0xF8;
+    if (ly == (mmu.forceGet(LYC) & 0xFF)) stat |= 0x04;
+    stat |= mode & 0x3;
+    return (short)(stat | 0x80);
+  }
+
+  public void writeStat(short value) {
+    int old = mmu.forceGet(STAT) & 0x07;
+    int next = (value & 0xF8) | old;
+    mmu.forceSet(STAT, (short)next);
   }
 
   public void tick() {
-    int delta = clockCounter.count() - lastClockCount;
-    lastClockCount += delta;
-
     if (!isLCDEnabled()) {
-      modeCounter = lastClockCount / SCANLINE_CC;  // Keep line count synced
-      reset(); // slows down and bugs the whole display
+      ly = 0;
+      cycleInLine = 0;
+      mode = MODE_0;
+      windowLineCounter = 0;
+      mmu.forceSet(LY, (short)0);
+      updateStatRegister();
       return;
     }
-
-    // TODO implement LCD status interrupts (mode0, mode1, etc)
-
-    handleClockChange(delta);
+    step();
   }
 
-  private void handleClockChange(int delta) {
-    // Update mode counter
-    modeCounter += delta;
+  private void step() {
+    cycleInLine++;
 
-    // Util.log("MODE - " + mode);
-    // Util.log("MODE COUNTER - " + modeCounter);
-    // Util.log("LY - " + mmu.get(LY));
+    if (ly < SCREEN_HEIGHT) {
+      int newMode;
+      if (cycleInLine <= MODE_2_CYCLES)                            newMode = MODE_2;
+      else if (cycleInLine <= MODE_2_CYCLES + MODE_3_CYCLES)       newMode = MODE_3;
+      else                                                          newMode = MODE_0;
 
-    // If in V-Blank
-    if (mode == MODE_1) {
-
-      // If in new scanline
-      if (modeCounter > SCANLINE_CC) {
-        // Move to next scanline
-        modeCounter -= SCANLINE_CC;
-
-        // Increment LY
-        short oldLY = mmu.get(LY);
-        short newLY = (short)(CPUMath.inc8(oldLY).get8() % 0x9A);
-        mmu.set(LY, newLY);
+      if (newMode != mode) {
+        if (mode == MODE_3 && newMode == MODE_0) {
+          renderScanline();
+        }
+        mode = newMode;
       }
+    } else if (mode != MODE_1) {
+      mode = MODE_1;
+      mmu.raiseInterrupt(MMU.VBLANK);
+      screen.draw();
+      windowLineCounter = 0;
+    }
 
-      short ly = mmu.get(LY);
-      if (ly == 0) {
-        // Move to mode 2
+    if (cycleInLine >= SCANLINE_CYCLES) {
+      cycleInLine = 0;
+      ly++;
+      if (ly >= TOTAL_LINES) ly = 0;
+      mmu.forceSet(LY, (short)(ly & 0xFF));
+      if (ly < SCREEN_HEIGHT) {
         mode = MODE_2;
-
-        // Update LCD status
-        short lcdStatus = mmu.get(LCDC_STATUS);
-        lcdStatus = CPUMath.setBit(lcdStatus, 1);
-        lcdStatus = CPUMath.resetBit(lcdStatus, 0);
-        mmu.set(LCDC_STATUS, lcdStatus);
-
-        // Attempt to raise interrupt
-        if (CPUMath.getBit(lcdStatus, 5) > 0)
-          mmu.raiseInterrupt(1);
+      } else if (ly == SCREEN_HEIGHT) {
+        // handled above at next step
       }
     }
-    // Reading from OAM
-    else if (mode == MODE_2) {
 
-      // Is no longer in mode2
-      if (modeCounter > MODE_2_CC) {
-        // Move to next mode
-        modeCounter -= MODE_2_CC;
-        mode = MODE_3;
+    updateStatRegister();
+  }
 
-        // Update LCD status
-        short lcdStatus = mmu.get(LCDC_STATUS);
-        lcdStatus = CPUMath.setBit(lcdStatus, 1);
-        lcdStatus = CPUMath.resetBit(lcdStatus, 0);
-        mmu.set(LCDC_STATUS, lcdStatus);
-      }
-    }
-    // Transferring to LCD
-    else if (mode == MODE_3) {
+  private void updateStatRegister() {
+    int stat = mmu.forceGet(STAT) & 0xFF;
+    int lyc = mmu.forceGet(LYC) & 0xFF;
+    boolean coincidence = (ly == lyc);
+    int newStat = (stat & 0xF8) | (coincidence ? 0x04 : 0x00) | (mode & 0x3);
+    mmu.forceSet(STAT, (short)newStat);
 
-      // Is no longer in mode3
-      if (modeCounter > MODE_3_CC) {
-        // Move to next mode
-        modeCounter -= MODE_3_CC;
-        mode = MODE_0;
+    boolean statLine = false;
+    if ((newStat & 0x40) != 0 && coincidence) statLine = true;
+    if ((newStat & 0x20) != 0 && mode == MODE_2) statLine = true;
+    if ((newStat & 0x10) != 0 && mode == MODE_1) statLine = true;
+    if ((newStat & 0x08) != 0 && mode == MODE_0) statLine = true;
 
-        // Update LCD status
-        short lcdStatus = mmu.get(LCDC_STATUS);
-        lcdStatus = CPUMath.setBit(lcdStatus, 1);
-        lcdStatus = CPUMath.setBit(lcdStatus, 0);
-        mmu.set(LCDC_STATUS, lcdStatus);
-
-        // Attempt to raise interrupt
-        if (CPUMath.getBit(lcdStatus, 3) > 0)
-          mmu.raiseInterrupt(1);
-      }
-    }
-    // H-Blank
-    else {
-
-      // Is no longer in mode0
-      if (modeCounter > MODE_0_CC) {
-
-        // Increment LY
-        short oldLY = mmu.get(LY);
-        short newLY = (short)(CPUMath.inc8(oldLY).get8() % 0x9A);
-        mmu.set(LY, newLY);
-
-        // Compare LY and LYC
-        short lyc = mmu.get(LYC);
-
-        if (newLY == lyc) {
-          handleCoincidence();  // raises STAT interrupt if enabled
-        } else {
-          // Reset coincidence bit
-          short lcdStatus = mmu.get(LCDC_STATUS);
-          lcdStatus = CPUMath.resetBit(lcdStatus, 2);
-          mmu.set(LCDC_STATUS, lcdStatus);
-        }
-
-        // Is in V-Blank
-        if (newLY == 0x90) {
-
-          // Move to next mode
-          mode = MODE_1;
-          modeCounter -= MODE_0_CC;
-
-          // Update LCD status
-          short lcdStatus = mmu.get(LCDC_STATUS);
-          lcdStatus = CPUMath.resetBit(lcdStatus, 1);
-          lcdStatus = CPUMath.setBit(lcdStatus, 0);
-          mmu.set(LCDC_STATUS, lcdStatus);
-
-          // Attemt to raise interrupt (Different from dedicated V-Blank interrupt)
-          if (CPUMath.getBit(lcdStatus, 4) > 0)
-            mmu.raiseInterrupt(1);
-
-          // Raise dedicated V-Blank interrupt
-          mmu.raiseInterrupt(0);
-        }
-        // Is entering mode2
-        else {
-
-          // Move to next mode
-          mode = MODE_2;
-          modeCounter -= MODE_0_CC;
-
-          // Update LCD status
-          short lcdStatus = mmu.get(LCDC_STATUS);
-          lcdStatus = CPUMath.setBit(lcdStatus, 1);
-          lcdStatus = CPUMath.resetBit(lcdStatus, 0);
-          mmu.set(LCDC_STATUS, lcdStatus);
-
-          // Attempt to raise interrupt
-          if (CPUMath.getBit(lcdStatus, 5) > 0)
-            mmu.raiseInterrupt(1);
-
-          // Draw screen
-          if (screen != null) {
-            updateScreen();
-            screen.draw();
-          }
-        }
-      }
-    }
+    if (statLine && !lastStatLine) mmu.raiseInterrupt(MMU.LCD_STAT);
+    lastStatLine = statLine;
   }
 
   private boolean isLCDEnabled() {
-    return CPUMath.getBit(mmu.get(LCDC_CONTROL), 7) > 0;
+    return (mmu.forceGet(LCDC) & 0x80) != 0;
   }
 
-  private void handleCoincidence() {
-    short lcdcStatus = mmu.get(LCDC_STATUS);
+  private boolean isBGEnabled() { return (mmu.forceGet(LCDC) & 0x01) != 0; }
+  private boolean isWindowEnabled() { return (mmu.forceGet(LCDC) & 0x20) != 0; }
+  private boolean areSpritesEnabled() { return (mmu.forceGet(LCDC) & 0x02) != 0; }
 
-    // Update LCDC status
-    lcdcStatus = CPUMath.setBit(lcdcStatus, 2);
-    mmu.set(LCDC_STATUS, lcdcStatus);
+  private int bgTileDataBase() {
+    return (mmu.forceGet(LCDC) & 0x10) != 0 ? 0x8000 : 0x8800;
+  }
+  private int windowTileMapBase() {
+    return (mmu.forceGet(LCDC) & 0x40) != 0 ? 0x9C00 : 0x9800;
+  }
+  private int bgTileMapBase() {
+    return (mmu.forceGet(LCDC) & 0x08) != 0 ? 0x9C00 : 0x9800;
+  }
+  private int spriteHeight() {
+    return (mmu.forceGet(LCDC) & 0x04) != 0 ? 16 : 8;
+  }
 
-    // Check if coincidence interrupt is enabled
-    if (CPUMath.getBit(lcdcStatus, 6) > 0) {
-      // Set interrupt flag
-      mmu.raiseInterrupt(1);
+  private void renderScanline() {
+    int[] line = new int[SCREEN_WIDTH];
+    int[] bgColorCode = new int[SCREEN_WIDTH];
+    renderBackground(line, bgColorCode);
+    renderWindow(line, bgColorCode);
+    renderSprites(line, bgColorCode);
+    blitLine(line);
+  }
+
+  private void renderBackground(int[] line, int[] bgColorCode) {
+    if (!isBGEnabled()) {
+      for (int x = 0; x < SCREEN_WIDTH; x++) {
+        line[x] = COLOR_WHITE;
+        bgColorCode[x] = 0;
+      }
+      return;
     }
-  }
 
-  private int getWindowTileData() { return getBGTileData(); }
-  private int getBGTileData() {
-    int selector = CPUMath.getBit(mmu.get(LCDC_CONTROL), 4);
-    return selector == 0 ? 0x8800 : 0x8000;
-  }
+    int scy = mmu.forceGet(SCY) & 0xFF;
+    int scx = mmu.forceGet(SCX) & 0xFF;
+    short bgp = mmu.forceGet(BGP);
+    int y = (ly + scy) & 0xFF;
+    int tileRow = (y >> 3) & 0x1F;
+    int mapBase = bgTileMapBase();
+    int tileData = bgTileDataBase();
 
-  private int getSpriteTileData() {
-    return 0x8000;
-  }
-
-  private int getWindowTileMap() {
-    int selector = CPUMath.getBit(mmu.get(LCDC_CONTROL), 6);
-    return selector == 0 ? 0x9800 : 0x9C00;
-  }
-
-  private int getBGTileMap() {
-    int selector = CPUMath.getBit(mmu.get(LCDC_CONTROL), 3);
-    return selector == 0 ? 0x9800 : 0x9C00;
-  }
-
-  private boolean isBGEnabled() {
-    short lcdcValue = mmu.get(LCDC_CONTROL);
-    return CPUMath.getBit(lcdcValue, 0) > 0;
-  }
-
-  private boolean isWindowEnabled() {
-    short lcdcValue = mmu.get(LCDC_CONTROL);
-    return CPUMath.getBit(lcdcValue, 5) > 0;
-  }
-
-  private boolean areSpritesEnabled() {
-    short lcdcValue = mmu.get(LCDC_CONTROL);
-    return CPUMath.getBit(lcdcValue, 1) > 0;
-  }
-
-  private void updateScreen() {
-    int y = mmu.get(LY);
-
-    // Draw a horizontal line of pixels
     for (int x = 0; x < SCREEN_WIDTH; x++) {
-      short color = getPixelColor(x, y);
+      int pixelX = (x + scx) & 0xFF;
+      int tileCol = (pixelX >> 3) & 0x1F;
+      int tileIndex = mmu.forceGet(mapBase + tileRow * 32 + tileCol) & 0xFF;
+      int tileAddr = tileAddress(tileData, tileIndex);
+      int lineAddr = tileAddr + (y & 7) * 2;
+      int lo = mmu.forceGet(lineAddr) & 0xFF;
+      int hi = mmu.forceGet(lineAddr + 1) & 0xFF;
+      int bit = 7 - (pixelX & 7);
+      int code = ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1);
+      bgColorCode[x] = code;
+      line[x] = paletteColor(code, bgp);
+    }
+  }
 
-      // Upscale the pixel according to scale factor
-      for (int i = 0 ; i < SCALE; i++) {
+  private void renderWindow(int[] line, int[] bgColorCode) {
+    if (!isWindowEnabled()) return;
+
+    int wy = mmu.forceGet(WY) & 0xFF;
+    if (ly < wy) return;
+
+    int wx = (mmu.forceGet(WX) & 0xFF) - 7;
+    if (wx >= SCREEN_WIDTH) return;
+
+    short bgp = mmu.forceGet(BGP);
+    int y = windowLineCounter;
+    int tileRow = (y >> 3) & 0x1F;
+    int mapBase = windowTileMapBase();
+    int tileData = bgTileDataBase();
+
+    for (int x = Math.max(0, wx); x < SCREEN_WIDTH; x++) {
+      int pixelX = x - wx;
+      int tileCol = (pixelX >> 3) & 0x1F;
+      int tileIndex = mmu.forceGet(mapBase + tileRow * 32 + tileCol) & 0xFF;
+      int tileAddr = tileAddress(tileData, tileIndex);
+      int lineAddr = tileAddr + (y & 7) * 2;
+      int lo = mmu.forceGet(lineAddr) & 0xFF;
+      int hi = mmu.forceGet(lineAddr + 1) & 0xFF;
+      int bit = 7 - (pixelX & 7);
+      int code = ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1);
+      bgColorCode[x] = code;
+      line[x] = paletteColor(code, bgp);
+    }
+    windowLineCounter++;
+  }
+
+  private void renderSprites(int[] line, int[] bgColorCode) {
+    if (!areSpritesEnabled()) return;
+    int spriteH = spriteHeight();
+    int drawn = 0;
+    int[] drawnX = new int[10];
+    int drawnCount = 0;
+
+    for (int i = 0; i < 40 && drawn < 10; i++) {
+      int addr = OAM + i * 4;
+      int y = (mmu.forceGet(addr) & 0xFF) - 16;
+      int x = (mmu.forceGet(addr + 1) & 0xFF) - 8;
+      int tileIndex = mmu.forceGet(addr + 2) & 0xFF;
+      int attrs = mmu.forceGet(addr + 3) & 0xFF;
+
+      if (ly < y || ly >= y + spriteH) continue;
+      drawn++;
+
+      if (spriteH == 16) tileIndex &= 0xFE;
+
+      boolean flipY = (attrs & 0x40) != 0;
+      boolean flipX = (attrs & 0x20) != 0;
+      int row = ly - y;
+      if (flipY) row = spriteH - 1 - row;
+
+      int tileAddr = 0x8000 + tileIndex * 16 + row * 2;
+      int lo = mmu.forceGet(tileAddr) & 0xFF;
+      int hi = mmu.forceGet(tileAddr + 1) & 0xFF;
+
+      short palette = mmu.forceGet((attrs & 0x10) != 0 ? OBP1 : OBP0);
+      boolean behindBg = (attrs & 0x80) != 0;
+
+      for (int px = 0; px < 8; px++) {
+        int sx = x + px;
+        if (sx < 0 || sx >= SCREEN_WIDTH) continue;
+
+        int bit = flipX ? px : 7 - px;
+        int code = ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1);
+        if (code == 0) continue;
+
+        boolean skip = false;
+        for (int d = 0; d < drawnCount; d++) {
+          if (drawnX[d] == sx) { skip = true; break; }
+        }
+        if (skip) continue;
+
+        if (behindBg && bgColorCode[sx] != 0) continue;
+        line[sx] = paletteColor(code, palette);
+      }
+
+      if (drawnCount < drawnX.length) drawnX[drawnCount++] = x;
+    }
+  }
+
+  private void blitLine(int[] line) {
+    for (int x = 0; x < SCREEN_WIDTH; x++) {
+      short color = (short)line[x];
+      for (int i = 0; i < SCALE; i++) {
         for (int j = 0; j < SCALE; j++) {
-          screen.setPixel(SCALE * x + i, SCALE * y + j, color);
+          screen.setPixel(SCALE * x + i, SCALE * ly + j, color);
         }
       }
     }
   }
 
-  private short getPixelColor(int pixelX, int pixelY) {
-    if (!isLCDEnabled()) return COLOR_WHITE;
-
-    final Pixel windowPixel = getWindowPixelColor(pixelX, pixelY);
-    final Pixel bgPixel = getBackgroundPixelColor(pixelX, pixelY);
-    final Sprite sprite = getSprite(pixelX, pixelY);
-
-    Pixel activePixel = windowPixel;
-    if (activePixel.color == 0)
-      activePixel = bgPixel;
-
-    // A transparent pixel will return TRANSPARENT
-    if (sprite.color != TRANSPARENT) {
-
-      // Sprite priority determines if sprite is above or below background
-      if (sprite.priority() == 1) {
-        if (windowPixel.colorCode != 0)
-          activePixel = windowPixel;
-        else if (bgPixel.colorCode != 0)
-          activePixel = bgPixel;
-      } else {
-        activePixel = sprite.getPixel();
-      }
-    }
-
-    return activePixel.color;
+  private static int tileAddress(int base, int tileIndex) {
+    if (base == 0x8000) return 0x8000 + tileIndex * 16;
+    // 0x8800 uses signed index based at 0x9000.
+    return 0x9000 + ((byte)tileIndex) * 16;
   }
 
-  private Pixel getBackgroundPixelColor(int pixelX, int pixelY) {
-    // Draw white if the background is disabled
-    if (!isBGEnabled())
-      return new Pixel();
-
-    int bgMap = getBGTileMap();
-    int bgTiles = getBGTileData();
-    short bgPalette = mmu.get(BG_PALETTE);
-    short scrollY = mmu.get(SCY);
-    short scrollX = mmu.get(SCX);
-    int posY = (pixelY + scrollY) & 0xFF;
-    int posX = (pixelX + scrollX) & 0xFF;
-    int tileRow = (posY / 8) * 32;  // bgMap tile row
-    int tileCol = posX / 8;  // bgMap tile column
-    int tileIndexAddress = bgMap + tileRow + tileCol;  // tile index in the tile data
-    int tileIndex = mmu.get(tileIndexAddress);
-    int tile = getTileBaseAddress(bgTiles, tileIndex); // tile base address
-
-    int tileLine = tile + 2 * (posY % 8); // The tile's horizontal pixelY being drawn
-    short tileLineByte1 = mmu.get(tileLine);  // Lower byte
-    short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
-    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8));
-    int paletteColor = getPaletteColor(colorCode, bgPalette);
-    short color = getColor(paletteColor);
-
-    Pixel px = new Pixel();
-    px.colorCode = colorCode;
-    px.paletteColor = paletteColor;
-    px.color = color;
-
-    return px;
-  }
-
-  private Pixel getWindowPixelColor(int pixelX, int pixelY) {
-    // Draw white if the window is disabled
-    if (!isWindowEnabled()) {
-      return new Pixel();
-    }
-
-    int windowMap = getWindowTileMap();
-    int windowTiles = getWindowTileData();
-    short windowPalette = mmu.get(WINDOW_PALETTE);
-    short windowY = mmu.get(WINDOW_Y_POSITION);
-    short windowX = (short)((mmu.get(WINDOW_X_POSITION) + 7) & 0xFF);
-    int posY = (pixelY - windowY) & 0xFF;
-    int posX = (pixelX + windowX) & 0xFF;
-    int tileRow = (posY / 8) * 32;  // windowMap tile row
-    int tileCol = posX / 8;  // windowMap tile column
-    int tileIndexAddress = windowMap + tileRow + tileCol;  // tile index in the tile data
-    int tileIndex = mmu.get(tileIndexAddress);
-    int tile = getTileBaseAddress(windowTiles, tileIndex); // tile base address
-
-    int tileLine = tile + 2 * (posY % 8); // The tile's horizontal pixelY being drawn
-    short tileLineByte1 = mmu.get(tileLine);  // Lower byte
-    short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
-    int colorCode = getColorCode(tileLineByte1, tileLineByte2, 7 - (posX % 8));
-    int paletteColor = getPaletteColor(colorCode, windowPalette);
-    short color = getColor(paletteColor);
-
-    Pixel px = new Pixel();
-    px.colorCode = colorCode;
-    px.paletteColor = paletteColor;
-    px.color = color;
-
-    return px;
-  }
-
-  private Sprite getSprite(int pixelX, int pixelY) {
-    // Return a transparent pixel if sprites are disabled
-    if (!areSpritesEnabled())
-      return new Sprite((short)TRANSPARENT);
-
-    int spriteTiles = getSpriteTileData();
-
-    Sprite sprite = new Sprite();
-
-    short lowestSpriteX = Short.MAX_VALUE;
-    short lowestTileIndex = Short.MAX_VALUE;
-
-    for (int i = OAM; i < 0xFEA0; i += 4) {
-      short spriteY = mmu.get(i);
-      short spriteX = mmu.get(i + 1);
-      short tileIndex = mmu.get(i + 2);
-      short attributes = mmu.get(i + 3);
-
-      // Util.log("OAM INDEX - " + Util.hex(i));
-      if (((spriteX < lowestSpriteX) || (spriteX == lowestSpriteX && tileIndex < lowestTileIndex))
-          && spriteContainsPixel(spriteX, spriteY, pixelX, pixelY)) {
-
-        lowestSpriteX = spriteX;
-        if (tileIndex < lowestTileIndex)
-          lowestTileIndex = tileIndex;
-
-        int posY = pixelY - (spriteY - 16);
-        int posX = pixelX - (spriteX - 8);
-
-        short palette = mmu.get(getSpritePalette(attributes));
-        int tile = getTileBaseAddress(spriteTiles, tileIndex);
-        int tileLine = tile + 2 * posY; // The tile's horizontal pixelY being drawn
-        short tileLineByte1 = mmu.get(tileLine);  // Lower byte
-        short tileLineByte2 = mmu.get(CPUMath.add16(tileLine, 1));  // Upper byte
-        int lineBit = 7 - (posX % 8);
-        int colorCode = getColorCode(tileLineByte1, tileLineByte2, lineBit);
-        int paletteColor = getPaletteColor(colorCode, palette);
-
-        // colorCode 3 is transparent
-        if (colorCode != 0) {
-          sprite.y = spriteY;
-          sprite.x = spriteX;
-          sprite.index = tileIndex;
-          sprite.attributes = attributes;
-          sprite.colorCode = colorCode;
-          sprite.paletteColor = paletteColor;
-        }
-      }
-    }
-
-    short color = TRANSPARENT;
-    if (sprite.colorCode != 0)
-      color = getColor(sprite.colorCode);
-
-    sprite.color = color;
-    return sprite;
-  }
-
-  private boolean spriteContainsPixel(short posX, short posY, int pixelX, int pixelY) {
-    int spriteSize = getSpriteSize();
-    return spriteContainsPixel(posX, posY, pixelX, pixelY, spriteSize);
-  }
-  private static boolean spriteContainsPixel(short posX, short posY, int pixelX, int pixelY, int spriteSize) {
-    boolean checkY = (posY - 16) <= pixelY && (posY - 16 + spriteSize) > pixelY;
-    boolean checkX = (posX - 8) <= pixelX && posX > pixelX;
-
-    // Util.log("(spriteX - 8) == " + Util.hex(posX - 8));
-    // Util.log("(spriteY - 16) == " + Util.hex(posY - 16));
-    // Util.log("PIXEL X - " + Util.hex(pixelX));
-    // Util.log("PIXEL Y - " + Util.hex(pixelY));
-    // Util.log();
-
-    return checkY && checkX;
-  }
-
-  private int getSpriteSize() {
-    short lcdcControl = mmu.get(LCDC_CONTROL);
-    int sizeSelect = CPUMath.getBit(lcdcControl, 2);
-    return sizeSelect == 0 ? 8 : 16;
-  }
-
-  private int getSpritePalette(short attributes) {
-    int index = CPUMath.getBit(attributes, 4);
-    int palette = index == 0 ? OBJ_PALETTE_0 : OBJ_PALETTE_1;
-    return palette;
-  }
-
-  private static int getTileBaseAddress(int tileData, int tileIndex) {
-    int tileOffset = 128; // Needed for tile data at 0x8800
-    int tileSize = 16;  // in bytes
-
-    int tile = 0;
-    if (tileData == 0x8000)
-      tile = tileData + tileSize * tileIndex;
-    else
-      tile = 0x9000 + tileSize * (byte)tileIndex;
-
-    return tile;
-  }
-
-  public static int getColorCode(short lowerByte, short upperByte, int bit) {
-    int lowerBit = CPUMath.getBit(lowerByte, bit);
-    int upperBit = CPUMath.getBit(upperByte, bit);
-
-    short colorCode = (short)((upperBit << 1) + lowerBit);
-    if (colorCode < 0 || colorCode > 3) {
-      Util.errn("PPU.getColorCode - Bad color code.");
-      return -1;
-    }
-
-    // Util.debug("Lower bit - " + Util.bin(lowerBit));
-    // Util.debug("Upper bit - " + Util.bin(upperBit));
-    // Util.debug("Color Code - " + Util.bin(colorCode));
-
-    return colorCode;
-  }
-
-  public static int getPaletteColor(int colorCode, short palette) {
-    int shiftAmount = 8 - 2 * (colorCode + 1);
-    int paletteColor = (0xFF & (palette << shiftAmount)) >> 6;
-
-    // Util.debug("Palette Color - " + Util.bin(paletteColor));
-
-    return paletteColor;
-  }
-
-  public static short getColor(int paletteColor) {
-    if (paletteColor < 0 || paletteColor > 3) {
-      Util.errn("PPU.getColor - Bad palette color.");
-      return COLOR_WHITE;
-    }
-
-    // Util.log("Color Code - " + Util.bin(paletteColor));
-
-    short color = COLOR_WHITE;
-    switch (paletteColor) {
-      case 3: color = COLOR_BLACK; break;
-      case 2: color = COLOR_DARK_GREY; break;
-      case 1: color = COLOR_LIGHT_GREY; break;
-      case 0: color = COLOR_WHITE; break;
-      default: color = COLOR_WHITE; break;
-    }
-    return color;
-  }
-
-  private class Pixel {
-    public int colorCode = 0;
-    public int paletteColor = 0;
-    public short color = 0;
-  }
-
-  private class Sprite {
-    public int y;
-    public int x;
-    public int index;
-    public int attributes;
-    public int colorCode;
-    public int paletteColor;
-    public short color;
-
-    public Sprite() {}
-    public Sprite(short color) {this.color = color;}
-
-    public Pixel getPixel() {
-      Pixel px = new Pixel();
-      px.colorCode = colorCode;
-      px.paletteColor = paletteColor;
-      px.color = color;
-      return px;
-    }
-
-    public int priority() {
-      return CPUMath.getBit((short)attributes, 7);
-    }
-  }
-
-
-  public static void main(String args[]) {
-    int tileData = 0x8800;
-
-    for (int i = 0; i < 384; i++) {
-      int base = getTileBaseAddress(tileData, i);
-      Util.log("BASE #" + i + " - " + Util.hex(base));
+  private static int paletteColor(int colorCode, short palette) {
+    int shade = (palette >> (colorCode * 2)) & 0x3;
+    switch (shade) {
+      case 0: return COLOR_WHITE;
+      case 1: return COLOR_LIGHT_GREY;
+      case 2: return COLOR_DARK_GREY;
+      default: return COLOR_BLACK;
     }
   }
 }

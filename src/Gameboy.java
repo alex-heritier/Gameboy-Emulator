@@ -4,133 +4,179 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.StringTokenizer;
 
+/**
+ * Top-level Game Boy. Wires the CPU, MMU, PPU, APU, joypad, cart, and
+ * timer together and drives the emulation loop.
+ *
+ * <p>{@link #run()} runs the emulator in real time (with frame pacing
+ * and audio), while {@link #runUntilSerialResult(long)} drives the
+ * CPU as fast as possible for headless testing: it watches the serial
+ * output for Blargg-style "Passed"/"Failed" markers and returns when
+ * one is seen (or when the maxTicks budget runs out).
+ */
 class Gameboy {
-  public static enum TestStatus {
-    RUNNING,
-    PASSED,
-    FAILED,
-    TIMEOUT
-  }
+  public static enum TestStatus { RUNNING, PASSED, FAILED, TIMEOUT }
 
   private static final int SERIAL_BUFFER_LIMIT = 4096;
+  private static final double M_CYCLES_PER_FRAME = 17556.0; // ~59.73 Hz
+  private static final double NS_PER_FRAME = 1_000_000_000.0 / 59.7275;
 
-  private CPUState state;
-  private ClockCounter clockCounter;
-  private CPU cpu;
-  private PPU ppu;
-  private MMU mmu;
-  private TimerHandler timer;
-  private Cart cart;
+  private final CPUState state;
+  private final ClockCounter clockCounter;
+  private final CPU cpu;
+  private final PPU ppu;
+  private final MMU mmu;
+  private final APU apu;
+  private final TimerHandler timer;
+  private final Cart cart;
 
-  // For debugging
-  private ArrayList<Integer> breakpoints;
-  private ArrayList<Integer> watchpoints;
+  private final ArrayList<Integer> breakpoints = new ArrayList<>();
+  private final ArrayList<Integer> watchpoints = new ArrayList<>();
   private boolean step;
-  private long tickCounter = 0;
-  private StringBuilder serialOutput;
-  private TestStatus testStatus;
+  private long tickCounter;
+  private final StringBuilder serialOutput = new StringBuilder();
+  private TestStatus testStatus = TestStatus.RUNNING;
 
-  public Gameboy(Cart cart) {
-    this(cart, null, true);
-  }
+  public Gameboy(Cart cart) { this(cart, null, true, true); }
 
   public Gameboy(Cart cart, Screen screen, boolean printSerialToStdout) {
+    this(cart, screen, printSerialToStdout, screen != null);
+  }
+
+  public Gameboy(Cart cart, Screen screen, boolean printSerialToStdout, boolean audioEnabled) {
     this.cart = cart;
     this.state = new CPUState();
     this.clockCounter = new ClockCounter();
-    this.serialOutput = new StringBuilder();
-    this.testStatus = TestStatus.RUNNING;
-    this.mmu = new MMU(new SerialListener() {
-      @Override
-      public void onSerialWrite(short data) {
-        onSerialWriteByte(data);
-      }
-    }, printSerialToStdout);
+    this.mmu = new MMU(cart, (short data) -> onSerialWriteByte(data), printSerialToStdout);
     this.ppu = new PPU(clockCounter, mmu, screen);
-    this.cpu = new CPU(state, mmu, cart, clockCounter);
+    this.apu = new APU(audioEnabled);
     this.timer = new TimerHandler(mmu, clockCounter);
-
-    this.breakpoints = new ArrayList<Integer>();
-    this.watchpoints = new ArrayList<Integer>();
-    breakpoints.add(0x0);
-    this.step = false;
+    this.mmu.attach(timer, ppu, apu);
+    this.cpu = new CPU(state, mmu, cart, clockCounter);
   }
 
+  public MMU mmu() { return mmu; }
+  public PPU ppu() { return ppu; }
+  public APU apu() { return apu; }
+  public Joypad joypad() { return mmu.joypad(); }
+
+  /**
+   * Run forever at ~real Game Boy speed, pacing each emulated frame to
+   * a wall-clock 59.7 Hz.
+   */
   public void run() {
     Util.debug = false;
-
-    state.setPC(0x100);
-    // breakpoints.add(0x100);
-    // breakpoints.add(0x4FF);
-
+    long frameStartNs = System.nanoTime();
     while (true) {
-      int pc = state.PC();
-      if (breakpoints.contains(pc)) debug_break();
-      else if (watchpoints.contains(mmu.lastAccessed())) debug_break();
-      else if (step)                {cpu.dump(); prompt();}
+      int cyclesBefore = clockCounter.count();
+      while (clockCounter.count() - cyclesBefore < M_CYCLES_PER_FRAME) {
+        tick();
+      }
+      int elapsedM = clockCounter.count() - cyclesBefore;
+      apu.tick(elapsedM);
 
-      tick();
-      // try {
-      //   if (tickCounter % 13 == 0)
-      //     Thread.sleep(1);
-      // } catch (Exception e) {e.printStackTrace();}
+      long now = System.nanoTime();
+      long targetNs = frameStartNs + (long) NS_PER_FRAME;
+      if (now < targetNs) {
+        try { Thread.sleep((targetNs - now) / 1_000_000L, (int)((targetNs - now) % 1_000_000L)); }
+        catch (InterruptedException ignored) {}
+      }
+      frameStartNs = Math.max(targetNs, System.nanoTime() - (long)(NS_PER_FRAME * 2));
     }
   }
 
+  /**
+   * Drives the emulator as fast as possible until {@code maxTicks}
+   * expires or until a Blargg-style pass/fail marker is seen over
+   * serial (or printed to the BG tile map, for tests like halt_bug
+   * that only write to the LCD). Returns the final {@link TestStatus}.
+   */
   public TestStatus runUntilSerialResult(long maxTicks) {
     Util.debug = false;
-    state.setPC(0x100);
     tickCounter = 0;
     serialOutput.setLength(0);
     testStatus = TestStatus.RUNNING;
 
+    // Some Blargg ROMs only write their result to the LCD, not serial,
+    // so we periodically scan the BG tile map for pass/fail text too.
+    final long VRAM_SCAN_INTERVAL = 200_000L;
+    long nextScan = VRAM_SCAN_INTERVAL;
+
     while (tickCounter < maxTicks) {
       tick();
-      if (testStatus == TestStatus.PASSED || testStatus == TestStatus.FAILED)
+      if (testStatus == TestStatus.PASSED || testStatus == TestStatus.FAILED) {
         return testStatus;
+      }
+      if (tickCounter >= nextScan) {
+        String screen = readBgTileMapAsText();
+        String lower = screen.toLowerCase();
+        if (lower.contains("failed")) {
+          if (serialOutput.length() == 0) serialOutput.append(screen);
+          testStatus = TestStatus.FAILED; return testStatus;
+        }
+        if (lower.contains("passed")) {
+          if (serialOutput.length() == 0) serialOutput.append(screen);
+          testStatus = TestStatus.PASSED; return testStatus;
+        }
+        nextScan = tickCounter + VRAM_SCAN_INTERVAL;
+      }
     }
 
     testStatus = TestStatus.TIMEOUT;
     return testStatus;
   }
 
-  public String serialOutput() {
-    return serialOutput.toString();
+  /**
+   * Reads the current BG tile map as ASCII. Blargg ROMs render text by
+   * storing tile indices equal to ASCII codes in the tile map and
+   * loading the matching glyphs into VRAM, so reading the map as chars
+   * reconstructs the on-screen text.
+   */
+  private String readBgTileMapAsText() {
+    int lcdc = mmu.forceGet(PPU.LCDC) & 0xFF;
+    int mapBase = (lcdc & 0x08) != 0 ? 0x9C00 : 0x9800;
+    StringBuilder sb = new StringBuilder();
+    for (int row = 0; row < 18; row++) {
+      for (int col = 0; col < 20; col++) {
+        int tile = mmu.forceGet(mapBase + row * 32 + col) & 0xFF;
+        char c = (tile >= 0x20 && tile < 0x7F) ? (char)tile : ' ';
+        sb.append(c);
+      }
+      sb.append('\n');
+    }
+    return sb.toString();
   }
 
-  public long ticks() {
-    return tickCounter;
-  }
-
-  public TestStatus testStatus() {
-    return testStatus;
-  }
+  public String serialOutput() { return serialOutput.toString(); }
+  public long ticks() { return tickCounter; }
+  public TestStatus testStatus() { return testStatus; }
 
   private void tick() {
-    // Util.log(".");
-    timer.tick();
+    if (breakpoints.contains(state.PC())) debugBreak();
+    else if (step) { cpu.dump(); prompt(); }
+
     cpu.tick();
-    ppu.tick();
-    this.tickCounter++;
+    tickCounter++;
   }
 
   private void onSerialWriteByte(short data) {
-    serialOutput.append((char)(data & 0xFF));
+    char c = (char)(data & 0xFF);
+    serialOutput.append(c);
     if (serialOutput.length() > SERIAL_BUFFER_LIMIT) {
-      int trimTo = serialOutput.length() - SERIAL_BUFFER_LIMIT;
-      serialOutput.delete(0, trimTo);
+      serialOutput.delete(0, serialOutput.length() - SERIAL_BUFFER_LIMIT);
     }
-
     String out = serialOutput.toString().toLowerCase();
     if (out.contains("failed")) testStatus = TestStatus.FAILED;
     else if (out.contains("passed")) testStatus = TestStatus.PASSED;
   }
 
+  public void shutdown() {
+    if (cart != null) cart.saveBatteryRam();
+    if (apu != null) apu.stop();
+  }
 
-  /*
-   *  Debugger methods
-   */
-  private void debug_break() {
+  // --- debugger -----------------------------------------------------
+  private void debugBreak() {
     Util.log("##########################");
     cpu.dump();
     prompt();
@@ -139,218 +185,95 @@ class Gameboy {
 
   private void prompt() {
     Console c = System.console();
-    if (c != null) {
-      boolean cnt = true;
-      while (cnt) {
-        c.format("> ");
-        String input = c.readLine();
-        cnt = interpret(input, c);
-      }
+    if (c == null) return;
+    boolean cnt = true;
+    while (cnt) {
+      c.format("> ");
+      cnt = interpret(c.readLine(), c);
     }
   }
 
   private boolean interpret(String input, Console c) {
     if (input == null) return false;
-
-    boolean cnt = true;
     StringTokenizer st = new StringTokenizer(input, " ");
-
-    // happens when user hits enter without typing anything
-    if (!st.hasMoreTokens()) {
-      return false;
-    }
+    if (!st.hasMoreTokens()) return false;
 
     String cmd = st.nextToken();
     switch (cmd) {
-      case "":
-        break;
-      case "dump":
-        cpu.dump();
-        break;
-      case "mem":
-        mem(st);
-        break;
-      case "set":
-        setBreakpoint(st);
-        break;
-      case "unset":
-        unsetBreakpoint(st);
-        break;
-      case "stack":
-        stack(st);
-        break;
-      case "step":
-        step = true;
-        break;
-      case "run":
-        step = false;
-        cnt = false;
-        break;
-      case "timer":
-        timer();
-        break;
-      case "setmem":
-        setmem(st);
-        break;
-      case "watch":
-        watch(st);
-        break;
-      default:
-        cnt = false;
-        break;
+      case "dump":  cpu.dump(); return true;
+      case "mem":   mem(st); return true;
+      case "set":   setBreakpoint(st); return true;
+      case "unset": unsetBreakpoint(st); return true;
+      case "stack": stack(); return true;
+      case "step":  step = true; return true;
+      case "run":   step = false; return false;
+      case "setmem":setmem(st); return true;
+      case "watch": watch(st); return true;
+      default: return false;
     }
-    return cnt;
   }
 
   private void mem(StringTokenizer st) {
-    if (!st.hasMoreTokens()) {
-      return;
+    if (!st.hasMoreTokens()) return;
+    int from;
+    try { from = Integer.decode("0x" + st.nextToken()); }
+    catch (Exception e) { Util.log("Usage: mem <16bit hex> <16bit hex>"); return; }
+    int to = from;
+    if (st.hasMoreTokens()) {
+      try { to = Integer.decode("0x" + st.nextToken()); } catch (Exception e) { to = from; }
     }
-
-    int from = 0;
-    int to = 0;
-    try {
-      from = Integer.decode("0x" + st.nextToken());
-    } catch (Exception e) {
-        Util.log("Usage: mem <16bit hex> <16bit hex>");
-        return;
-    }
-    try {
-      to = Integer.decode("0x" + st.nextToken());
-    } catch (Exception e) {
-      to = from;
-    }
-
     Util.log("Memory " + Util.hex(from) + " - " + Util.hex(to));
-    for (; from <= to; to--) {
-      Util.log(Util.hex(to) + "\t" + Util.hex(mmu.get(to)));
+    for (int i = from; i <= to; i++) {
+      Util.log(Util.hex(i) + "\t" + Util.hex(mmu.get(i)));
     }
-    Util.log();
   }
 
   private void setBreakpoint(StringTokenizer st) {
     if (!st.hasMoreTokens()) {
-      Util.log("Breakpoints");
       Collections.sort(breakpoints);
-      for (int i = 0; i < breakpoints.size(); i++) {
-        Util.log(Util.hex(breakpoints.get(i)));
-      }
-      Util.log();
+      for (Integer bp : breakpoints) Util.log(Util.hex(bp));
       return;
     }
-
-    int breakpoint = 0;
     try {
-      breakpoint = Integer.decode("0x" + st.nextToken());
-    } catch (Exception e) {
-      Util.log("Usage: set <16 bit hex>");
-      return;
-    }
-
-    if (!breakpoints.contains(breakpoint))
-      breakpoints.add(breakpoint);
+      int bp = Integer.decode("0x" + st.nextToken());
+      if (!breakpoints.contains(bp)) breakpoints.add(bp);
+    } catch (Exception e) { Util.log("Usage: set <16 bit hex>"); }
   }
 
   private void unsetBreakpoint(StringTokenizer st) {
-    if (!st.hasMoreTokens()) {
-      breakpoints.clear();
-      return;
-    }
-
-    int breakpoint = 0;
+    if (!st.hasMoreTokens()) { breakpoints.clear(); return; }
     try {
-      breakpoint = Integer.decode("0x" + st.nextToken());
-    } catch (Exception e) {
-      Util.log("Usage: unset <16 bit hex>");
-      return;
-    }
-
-    if (breakpoints.contains(breakpoint))
-      breakpoints.remove(Integer.valueOf(breakpoint));
+      int bp = Integer.decode("0x" + st.nextToken());
+      breakpoints.remove(Integer.valueOf(bp));
+    } catch (Exception e) { Util.log("Usage: unset <16 bit hex>"); }
   }
 
-  private void stack(StringTokenizer st) {
-    int base = 0xFFFE;
-
+  private void stack() {
     Util.log("Stack");
-    for (int i = base; i > state.SP(); i--) {
+    for (int i = 0xFFFE; i > state.SP(); i--) {
       Util.log(Util.hex(i) + "\t" + Util.hex(mmu.get(i)));
     }
-    Util.log();
-  }
-
-  private void timer() {
-    short div = mmu.get(TimerHandler.DIV);
-    short timerCounter = mmu.get(TimerHandler.TIMER_COUNTER);
-    short timerModulo = mmu.get(TimerHandler.TIMER_MODULO);
-    short timerControl = mmu.get(TimerHandler.TIMER_CONTROL);
-    boolean timerStatus = CPUMath.getBit(timerControl, 2) > 0;
-
-    Util.log("Timer");
-    Util.log("DIV - " + Util.hex(div));
-    Util.log("TIMA - " + Util.hex(timerCounter));
-    Util.log("TMA - " + Util.hex(timerModulo));
-    Util.log("Timer is " + (timerStatus ? "ON" : "OFF"));
-    Util.log("Timer frequency - " + TimerHandler.getTimerIncrementInterval(timerControl));
   }
 
   private void setmem(StringTokenizer st) {
     if (st.countTokens() != 2) return;
-
-    int address = 0;
-    short value = 0;
     try {
-      address = Integer.decode("0x" + st.nextToken());
-      value = Short.decode("0x" + st.nextToken());
-    } catch (Exception e) {
-      Util.log("Usage: memset <a16> <d8>");
-      return;
-    }
-
-    mmu.forceSet(address, value);
-    value = mmu.get(address);
-    Util.log(Util.hex(address) + " = " + Util.hex(value));
-    Util.log();
+      int address = Integer.decode("0x" + st.nextToken());
+      short value = Short.decode("0x" + st.nextToken());
+      mmu.forceSet(address, value);
+      Util.log(Util.hex(address) + " = " + Util.hex(mmu.get(address)));
+    } catch (Exception e) { Util.log("Usage: memset <a16> <d8>"); }
   }
 
   private void watch(StringTokenizer st) {
     if (!st.hasMoreTokens()) {
-      Util.log("Watchpoints");
       Collections.sort(watchpoints);
-      for (int i = 0; i < watchpoints.size(); i++) {
-        Util.log(Util.hex(watchpoints.get(i)));
-      }
-      Util.log();
+      for (Integer wp : watchpoints) Util.log(Util.hex(wp));
       return;
     }
-
-    int address = 0;
     try {
-      address = Integer.decode("0x" + st.nextToken());
-    } catch (Exception e) {
-      Util.log("Usage: watch <a16>");
-      return;
-    }
-
-    if (!watchpoints.contains(address))
-      watchpoints.add(address);
-  }
-
-  private void unwatch(StringTokenizer st) {
-    if (!st.hasMoreTokens()) {
-      watchpoints.clear();
-      return;
-    }
-
-    int address = 0;
-    try {
-      address = Integer.decode("0x" + st.nextToken());
-    } catch (Exception e) {
-      Util.log("Usage: unwatch <a16>");
-      return;
-    }
-
-    if (watchpoints.contains(address))
-      watchpoints.remove(Integer.valueOf(address));
+      int address = Integer.decode("0x" + st.nextToken());
+      if (!watchpoints.contains(address)) watchpoints.add(address);
+    } catch (Exception e) { Util.log("Usage: watch <a16>"); }
   }
 }
